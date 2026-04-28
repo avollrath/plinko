@@ -1,4 +1,5 @@
 import './styles.css';
+import { PlinkoPhysics } from './plinkoPhysics';
 import { TerminalScene } from './threeScene';
 import { buckets, createInitialState, type BucketId, type TerminalState } from './uiState';
 
@@ -96,6 +97,7 @@ app.innerHTML = `
 
 const dropButton = document.querySelector<HTMLButtonElement>('[data-drop]');
 const terminalCanvas = document.querySelector<HTMLCanvasElement>('#terminal-scene');
+const plinkoCanvas = document.querySelector<HTMLCanvasElement>('#plinko-canvas');
 const vuMeter = document.querySelector<HTMLDivElement>('[data-vu]');
 const bucketRow = document.querySelector<HTMLDivElement>('[data-buckets]');
 const distChart = document.querySelector<HTMLDivElement>('[data-dist]');
@@ -104,8 +106,16 @@ const progress = document.querySelector<HTMLDivElement>('[data-progress]');
 if (!terminalCanvas) {
   throw new Error('Terminal scene canvas was not found.');
 }
+if (!plinkoCanvas) {
+  throw new Error('Plinko canvas was not found.');
+}
 
 const terminalScene = new TerminalScene(terminalCanvas);
+const plinko = new PlinkoPhysics(plinkoCanvas, {
+  onStart: () => setActive(true),
+  onLanding: (id, points) => registerLanding(id, points),
+  isActive: () => state.active
+});
 
 function resizeScene(): void {
   terminalScene.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio);
@@ -142,11 +152,11 @@ if (progress) {
   progress.innerHTML = Array.from({ length: 10 }, () => '<i></i>').join('');
 }
 
-dropButton?.addEventListener('click', () => setActive(true));
+dropButton?.addEventListener('click', () => plinko.drop());
 window.addEventListener('keydown', (event) => {
   if (event.code === 'Space') {
     event.preventDefault();
-    setActive(true);
+    plinko.drop();
   }
 });
 
@@ -210,6 +220,7 @@ function animateShell(): void {
 
   renderState();
   terminalScene.render();
+  plinko.update();
   requestAnimationFrame(animateShell);
 }
 
