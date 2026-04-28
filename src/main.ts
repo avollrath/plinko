@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib';
 import './styles.css';
 
 type BucketId = 'L3' | 'L2' | 'L1' | 'CTR' | 'R1' | 'R2' | 'R3';
@@ -41,10 +42,11 @@ renderer.setClearColor(0x070808, 1);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.toneMappingExposure = 0.95;
 renderer.outputEncoding = THREE.sRGBEncoding;
 
 const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x080a06, 0.06);
 const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
 camera.position.set(0, 1.5, 4.5);
 camera.lookAt(0, 0, 0);
@@ -54,6 +56,7 @@ const pointer = new THREE.Vector2(10, 10);
 const mouse01 = new THREE.Vector2(0.5, 0.5);
 const terminalGroup = new THREE.Group();
 scene.add(terminalGroup);
+RectAreaLightUniformsLib.init();
 
 const interactive: THREE.Object3D[] = [];
 let dropButtonMesh: THREE.Mesh;
@@ -66,6 +69,10 @@ let lastSecond = -1;
 let reelAngle = 0;
 let amberPhase = 0;
 let progressPhase = 0;
+let targetRotX = 0;
+let targetRotY = 0;
+let currentRotX = 0;
+let currentRotY = 0;
 const landings: Array<{ stamp: string; id: BucketId; points: number }> = [];
 const distribution = new Map<BucketId, number>(buckets.map((bucket) => [bucket.id, 0]));
 const stats = { L: 0, C: 0, R: 0 };
@@ -77,34 +84,52 @@ const screenCtx = mustContext(screenCanvas);
 const screenTexture = new THREE.CanvasTexture(screenCanvas);
 screenTexture.encoding = THREE.sRGBEncoding;
 
+const sharedPlasticNormalMap = makeNormalMap('plastic');
+const sharedScratchNormalMap = makeNormalMap('scratch');
+const sharedRoughnessMap = makeRoughnessMap('fingerprint');
+const sharedDirtMap = makeDirtMap();
+const sharedAoMap = makePanelAoMap();
+
 const plasticMaterial = new THREE.MeshStandardMaterial({
-  color: 0x2c3020,
-  roughness: 0.88,
-  metalness: 0.05,
-  normalMap: makeNormalMap(),
-  roughnessMap: makeRoughnessMap(),
-  normalScale: new THREE.Vector2(0.4, 0.4)
+  color: 0x2a2e1c,
+  roughness: 0.86,
+  metalness: 0.04,
+  normalMap: sharedPlasticNormalMap,
+  roughnessMap: sharedRoughnessMap,
+  aoMap: sharedDirtMap,
+  aoMapIntensity: 1,
+  normalScale: new THREE.Vector2(0.5, 0.5)
 });
 
 const faceMaterial = plasticMaterial.clone();
 faceMaterial.color = new THREE.Color(0x323820);
+faceMaterial.aoMap = sharedDirtMap;
+faceMaterial.aoMapIntensity = 0.85;
 
 const insetMaterial = new THREE.MeshStandardMaterial({
   color: 0x1c2014,
   roughness: 0.92,
-  metalness: 0.02
+  metalness: 0.02,
+  normalMap: sharedPlasticNormalMap,
+  normalScale: new THREE.Vector2(0.35, 0.35),
+  aoMap: sharedAoMap,
+  aoMapIntensity: 0.6
 });
 
 const rimMaterial = new THREE.MeshStandardMaterial({
   color: 0x3d4530,
-  roughness: 0.72,
-  metalness: 0.08
+  roughness: 0.68,
+  metalness: 0.18,
+  normalMap: sharedScratchNormalMap,
+  normalScale: new THREE.Vector2(0.45, 0.45)
 });
 
 const darkMetal = new THREE.MeshStandardMaterial({
-  color: 0x1a1c10,
-  roughness: 0.7,
-  metalness: 0.15
+  color: 0x1c201a,
+  roughness: 0.45,
+  metalness: 0.82,
+  normalMap: sharedScratchNormalMap,
+  normalScale: new THREE.Vector2(0.8, 0.8)
 });
 
 const phosphor = new THREE.MeshStandardMaterial({
@@ -151,6 +176,8 @@ window.addEventListener('resize', resize);
 window.addEventListener('mousemove', (event) => {
   mouse01.set(event.clientX / window.innerWidth, event.clientY / window.innerHeight);
   pointer.set(mouse01.x * 2 - 1, -(mouse01.y * 2 - 1));
+  targetRotY = (event.clientX / window.innerWidth - 0.5) * 0.2;
+  targetRotX = -(event.clientY / window.innerHeight - 0.5) * 0.12;
 });
 window.addEventListener('click', () => {
   raycaster.setFromCamera(pointer, camera);
@@ -168,50 +195,64 @@ resize();
 requestAnimationFrame(animate);
 
 function buildLights(): void {
-  scene.add(new THREE.AmbientLight(0x1a2010, 0.4));
-
-  const key = new THREE.DirectionalLight(0xffe8a0, 2.5);
-  key.position.set(-3, 5, 3);
+  const key = new THREE.DirectionalLight(0xfff0c8, 1.8);
+  key.position.set(-2.5, 4, 3.5);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
+  key.shadow.bias = -0.0003;
+  key.shadow.camera.near = 0.5;
+  key.shadow.camera.far = 20;
   key.shadow.camera.left = -4;
   key.shadow.camera.right = 4;
   key.shadow.camera.top = 4;
   key.shadow.camera.bottom = -4;
   scene.add(key);
 
-  const fill = new THREE.DirectionalLight(0x304060, 0.6);
-  fill.position.set(4, 2, -2);
+  const fill = new THREE.DirectionalLight(0x3a5060, 0.5);
+  fill.position.set(3.5, -1.5, 1);
   scene.add(fill);
 
-  const screenGlow = new THREE.PointLight(0x30ff70, 1.2, 2.5);
-  screenGlow.position.set(0, 0.1, 0.6);
+  const rim = new THREE.DirectionalLight(0x8090a0, 0.35);
+  rim.position.set(0.5, 3, -3.5);
+  scene.add(rim);
+
+  const topWash = new THREE.DirectionalLight(0xa0b080, 0.3);
+  topWash.position.set(0, 4, 1);
+  scene.add(topWash);
+
+  const screenGlow = new THREE.RectAreaLight(0x18ff58, 0.6, 0.65, 1.1);
+  screenGlow.position.set(0, 0.08, 0.58);
+  screenGlow.lookAt(0, 0.08, 0);
   terminalGroup.add(screenGlow);
 
-  const rim = new THREE.SpotLight(0xa0b080, 0.8, 8, 0.32, 0.5, 1.4);
-  rim.position.set(0, 6, 0);
-  rim.target = terminalGroup;
-  scene.add(rim, rim.target);
+  scene.add(new THREE.AmbientLight(0x0d1208, 0.5));
 }
 
 function buildEnvironment(): void {
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(12, 8),
-    new THREE.MeshStandardMaterial({ color: 0x0a0c08, roughness: 1, metalness: 0 })
+    new THREE.PlaneGeometry(10, 7, 1, 1),
+    new THREE.MeshStandardMaterial({
+      color: 0x0c0e0a,
+      roughness: 0.96,
+      metalness: 0,
+      roughnessMap: makeRoughnessMap('ground'),
+      normalMap: sharedScratchNormalMap,
+      normalScale: new THREE.Vector2(0.18, 0.18)
+    })
   );
   ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -1.2;
+  ground.position.y = -1.25;
   ground.receiveShadow = true;
   scene.add(ground);
 }
 
 function buildTerminal(): void {
-  const chassis = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.2, 0.28), plasticMaterial);
+  const chassis = new THREE.Mesh(makeRoundedBox(3.2, 2.2, 0.28, 0.03, 5), plasticMaterial);
   chassis.castShadow = true;
   chassis.receiveShadow = true;
   terminalGroup.add(chassis);
 
-  const facePlate = new THREE.Mesh(new THREE.BoxGeometry(3.0, 2.0, 0.02), faceMaterial);
+  const facePlate = new THREE.Mesh(makeRoundedBox(3.0, 2.0, 0.02, 0.026, 4), faceMaterial);
   facePlate.position.z = 0.15;
   facePlate.castShadow = true;
   facePlate.receiveShadow = true;
@@ -237,7 +278,7 @@ function addChamferStrips(): void {
     { size: [0.045, 2.14, 0.035], pos: [1.615, 0, 0.165], rot: 0.35 }
   ];
   strips.forEach(({ size, pos, rot }) => {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(size[0], size[1], size[2]), stripMaterial);
+    const mesh = new THREE.Mesh(makeRoundedBox(size[0], size[1], size[2], 0.008, 2), stripMaterial);
     mesh.position.set(pos[0], pos[1], pos[2]);
     mesh.rotation.z = rot;
     mesh.castShadow = true;
@@ -246,7 +287,7 @@ function addChamferStrips(): void {
 }
 
 function addPanel(width: number, height: number, x: number, y: number): void {
-  const panel = new THREE.Mesh(new THREE.BoxGeometry(width, height, 0.015), insetMaterial);
+  const panel = new THREE.Mesh(makeRoundedBox(width, height, 0.015, 0.018, 3), insetMaterial);
   panel.position.set(x, y, 0.155);
   panel.receiveShadow = true;
   terminalGroup.add(panel);
@@ -258,7 +299,7 @@ function addPanel(width: number, height: number, x: number, y: number): void {
     [t, height, -width / 2 - t / 2, 0],
     [t, height, width / 2 + t / 2, 0]
   ].forEach(([w, h, ox, oy]) => {
-    const rim = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.018), rimMaterial);
+    const rim = new THREE.Mesh(makeRoundedBox(w, h, 0.018, 0.006, 2), rimMaterial);
     rim.position.set(x + ox, y + oy, 0.168);
     terminalGroup.add(rim);
   });
@@ -272,8 +313,15 @@ function addPanel(width: number, height: number, x: number, y: number): void {
 }
 
 function buildHeaderFooter(): void {
-  const railMat = new THREE.MeshStandardMaterial({ color: 0x252d18, roughness: 0.85, metalness: 0.05 });
-  const header = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.16, 0.03), railMat);
+  const railMat = new THREE.MeshStandardMaterial({
+    color: 0x252d18,
+    roughness: 0.85,
+    metalness: 0.05,
+    normalMap: sharedPlasticNormalMap,
+    roughnessMap: sharedRoughnessMap,
+    normalScale: new THREE.Vector2(0.3, 0.3)
+  });
+  const header = new THREE.Mesh(makeRoundedBox(3.0, 0.16, 0.03, 0.018, 3), railMat);
   header.position.set(0, 0.98, 0.19);
   terminalGroup.add(header);
 
@@ -300,7 +348,7 @@ function buildHeaderFooter(): void {
   });
 
   for (let i = 0; i < 10; i += 1) {
-    const block = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.025, 0.009), inactiveSegment.clone());
+    const block = new THREE.Mesh(makeRoundedBox(0.045, 0.025, 0.009, 0.004, 1), inactiveSegment.clone());
     block.position.set(-0.24 + i * 0.054, -0.98, 0.218);
     progressBlocks.push(block);
     terminalGroup.add(block);
@@ -314,7 +362,7 @@ function buildCenterPanel(): void {
       map: screenTexture,
       emissiveMap: screenTexture,
       emissive: 0x30ff70,
-      emissiveIntensity: 0.18,
+      emissiveIntensity: 0.08,
       roughness: 0.1,
       metalness: 0
     })
@@ -333,10 +381,12 @@ function buildBuckets(): void {
       color: 0x232818,
       roughness: 0.9,
       metalness: 0.03,
+      normalMap: sharedPlasticNormalMap,
+      normalScale: new THREE.Vector2(0.18, 0.18),
       emissive: 0x30ff70,
       emissiveIntensity: 0
     });
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.06, 0.018), mat);
+    const mesh = new THREE.Mesh(makeRoundedBox(0.095, 0.06, 0.018, 0.008, 2), mat);
     mesh.position.set(-0.22 + index * 0.1, -0.52, 0.205);
     bucketMaterials.push(mat);
     terminalGroup.add(mesh);
@@ -345,13 +395,20 @@ function buildBuckets(): void {
 }
 
 function buildDropControls(): void {
-  const wellMat = new THREE.MeshStandardMaterial({ color: 0x161810, roughness: 0.86, metalness: 0.08 });
-  const knobMat = new THREE.MeshStandardMaterial({ color: 0x1a1c10, roughness: 0.6, metalness: 0.3 });
+  const wellMat = new THREE.MeshStandardMaterial({ color: 0x161810, roughness: 0.86, metalness: 0.08, normalMap: sharedScratchNormalMap });
+  const knobMat = new THREE.MeshStandardMaterial({ color: 0x1a1c10, roughness: 0.6, metalness: 0.3, normalMap: sharedScratchNormalMap, normalScale: new THREE.Vector2(0.35, 0.35) });
   addKnob(-0.34, -0.78, 'FREQ', wellMat, knobMat, -0.55);
   addKnob(0.5, -0.78, 'BIAS', wellMat, knobMat, 0.75);
 
-  const dropMat = new THREE.MeshStandardMaterial({ color: 0x2c3020, roughness: 0.75, metalness: 0.08 });
-  dropButtonMesh = makeFrontCylinder(0.17, 0.035, dropMat, 32, 0.16);
+  const dropMat = new THREE.MeshStandardMaterial({
+    color: 0x2c3020,
+    roughness: 0.78,
+    metalness: 0.06,
+    roughnessMap: makeButtonRoughnessMap(),
+    normalMap: sharedPlasticNormalMap,
+    normalScale: new THREE.Vector2(0.25, 0.25)
+  });
+  dropButtonMesh = makeDomeButton(dropMat);
   dropButtonMesh.position.set(0.08, -0.78, 0.23);
   dropButtonBaseZ = dropButtonMesh.position.z;
   dropButtonMesh.castShadow = true;
@@ -365,7 +422,7 @@ function buildLeftPanel(): void {
   for (let row = 0; row < 6; row += 1) {
     const rowMeshes: THREE.Mesh[] = [];
     for (let col = 0; col < 12; col += 1) {
-      const seg = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.014, 0.008), inactiveSegment.clone());
+      const seg = new THREE.Mesh(makeRoundedBox(0.03, 0.014, 0.008, 0.002, 1), inactiveSegment.clone());
       seg.position.set(-1.265 + col * 0.03, 0.58 - row * 0.035, 0.202);
       rowMeshes.push(seg);
       terminalGroup.add(seg);
@@ -377,7 +434,7 @@ function buildLeftPanel(): void {
   scoreDisplay.mesh.position.set(-1.1, 0.18, 0.218);
   terminalGroup.add(scoreDisplay.mesh);
 
-  const reelMat = new THREE.MeshStandardMaterial({ color: 0x2c3020, roughness: 0.7, metalness: 0.2 });
+  const reelMat = new THREE.MeshStandardMaterial({ color: 0x2c3020, roughness: 0.7, metalness: 0.2, normalMap: sharedScratchNormalMap, normalScale: new THREE.Vector2(0.25, 0.25) });
   addReel(-1.19, -0.1, reelMat);
   addReel(-1.01, -0.1, reelMat);
 
@@ -401,7 +458,7 @@ function buildRightPanel(): void {
     addLabelPlane(bucket.id, 0.12, 0.035, 0.93, -0.02 - row * 0.055, 0.205, 'left', 44);
     const segments: THREE.Mesh[] = [];
     for (let col = 0; col < 8; col += 1) {
-      const seg = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.014, 0.008), inactiveSegment.clone());
+      const seg = new THREE.Mesh(makeRoundedBox(0.035, 0.014, 0.008, 0.002, 1), inactiveSegment.clone());
       seg.position.set(1.06 + col * 0.04, -0.02 - row * 0.055, 0.205);
       segments.push(seg);
       terminalGroup.add(seg);
@@ -421,7 +478,7 @@ function addBezel(x: number, y: number, w: number, h: number, z: number): void {
     [0.035, h, -w / 2 - 0.017, 0],
     [0.035, h, w / 2 + 0.017, 0]
   ].forEach(([bw, bh, ox, oy]) => {
-    const strip = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, 0.035), darkMetal);
+    const strip = new THREE.Mesh(makeRoundedBox(bw, bh, 0.035, 0.006, 2), darkMetal);
     strip.position.set(x + ox, y + oy, z);
     strip.castShadow = true;
     terminalGroup.add(strip);
@@ -429,7 +486,7 @@ function addBezel(x: number, y: number, w: number, h: number, z: number): void {
 }
 
 function addHousing(x: number, y: number, w: number, h: number): void {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.02), darkMetal);
+  const mesh = new THREE.Mesh(makeRoundedBox(w, h, 0.02, 0.012, 2), darkMetal);
   mesh.position.set(x, y, 0.202);
   terminalGroup.add(mesh);
 }
@@ -441,7 +498,7 @@ function addKnob(x: number, y: number, label: string, wellMat: THREE.Material, k
   const knob = makeFrontCylinder(0.09, 0.025, knobMat);
   knob.position.set(x, y, 0.228);
   terminalGroup.add(knob);
-  const mark = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.06, 0.006), phosphor.clone());
+  const mark = new THREE.Mesh(makeRoundedBox(0.004, 0.06, 0.006, 0.0015, 1), phosphor.clone());
   mark.position.set(x + Math.sin(angle) * 0.02, y + Math.cos(angle) * 0.02, 0.246);
   mark.rotation.z = -angle;
   terminalGroup.add(mark);
@@ -453,7 +510,7 @@ function addReel(x: number, y: number, mat: THREE.Material): void {
   const disc = makeFrontCylinder(0.09, 0.015, mat);
   reel.add(disc);
   for (let i = 0; i < 3; i += 1) {
-    const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.095, 0.012), darkMetal);
+    const spoke = new THREE.Mesh(makeRoundedBox(0.018, 0.095, 0.012, 0.003, 1), darkMetal);
     spoke.rotation.z = (Math.PI * 2 * i) / 3;
     spoke.position.z = 0.012;
     reel.add(spoke);
@@ -464,15 +521,17 @@ function addReel(x: number, y: number, mat: THREE.Material): void {
 }
 
 function addScrew(x: number, y: number): void {
-  const screw = makeFrontCylinder(
-    0.018,
-    0.01,
-    new THREE.MeshStandardMaterial({ color: 0x1a1c14, roughness: 0.5, metalness: 0.6 }),
-    16
-  );
+  const screw = new THREE.Mesh(makeCountersunkScrewGeometry(), new THREE.MeshStandardMaterial({
+    color: 0x1a1e16,
+    roughness: 0.35,
+    metalness: 0.85,
+    normalMap: sharedScratchNormalMap,
+    normalScale: new THREE.Vector2(0.5, 0.5)
+  }));
+  screw.rotation.x = Math.PI / 2;
   screw.position.set(x, y, 0.19);
   terminalGroup.add(screw);
-  const crossA = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.003, 0.002), darkMetal);
+  const crossA = new THREE.Mesh(makeRoundedBox(0.025, 0.003, 0.002, 0.001, 1), darkMetal);
   const crossB = crossA.clone();
   crossB.rotation.z = Math.PI / 2;
   crossA.position.set(x, y, 0.197);
@@ -484,6 +543,60 @@ function makeFrontCylinder(radius: number, depth: number, material: THREE.Materi
   const mesh = new THREE.Mesh(new THREE.CylinderGeometry(topRadius, radius, depth, segments), material);
   mesh.rotation.x = Math.PI / 2;
   return mesh;
+}
+
+function makeDomeButton(material: THREE.Material): THREE.Mesh {
+  const points: THREE.Vector2[] = [];
+  for (let i = 0; i <= 12; i += 1) {
+    const t = i / 12;
+    points.push(new THREE.Vector2(0.18 * Math.cos(t * Math.PI * 0.45), t * 0.04 - 0.005));
+  }
+  const mesh = new THREE.Mesh(prepareGeometry(new THREE.LatheGeometry(points, 48)), material);
+  mesh.rotation.x = Math.PI / 2;
+  return mesh;
+}
+
+function makeCountersunkScrewGeometry(): THREE.BufferGeometry {
+  const points = [
+    new THREE.Vector2(0.004, -0.004),
+    new THREE.Vector2(0.015, -0.003),
+    new THREE.Vector2(0.019, 0.001),
+    new THREE.Vector2(0.017, 0.006),
+    new THREE.Vector2(0.009, 0.008),
+    new THREE.Vector2(0.002, 0.008)
+  ];
+  return prepareGeometry(new THREE.LatheGeometry(points, 28));
+}
+
+function makeRoundedBox(width: number, height: number, depth: number, radius: number, segments = 3): THREE.BufferGeometry {
+  const r = Math.min(radius, width / 2 - 0.0001, height / 2 - 0.0001);
+  const shape = new THREE.Shape();
+  shape.moveTo(-width / 2 + r, -height / 2);
+  shape.lineTo(width / 2 - r, -height / 2);
+  shape.quadraticCurveTo(width / 2, -height / 2, width / 2, -height / 2 + r);
+  shape.lineTo(width / 2, height / 2 - r);
+  shape.quadraticCurveTo(width / 2, height / 2, width / 2 - r, height / 2);
+  shape.lineTo(-width / 2 + r, height / 2);
+  shape.quadraticCurveTo(-width / 2, height / 2, -width / 2, height / 2 - r);
+  shape.lineTo(-width / 2, -height / 2 + r);
+  shape.quadraticCurveTo(-width / 2, -height / 2, -width / 2 + r, -height / 2);
+
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: true,
+    bevelThickness: Math.min(0.006, depth * 0.4),
+    bevelSize: Math.min(0.006, r * 0.65),
+    bevelSegments: segments
+  });
+  geometry.center();
+  return prepareGeometry(geometry);
+}
+
+function prepareGeometry<T extends THREE.BufferGeometry>(geometry: T): T {
+  geometry.computeVertexNormals();
+  const uv = geometry.getAttribute('uv');
+  if (uv) geometry.setAttribute('uv2', uv.clone());
+  return geometry;
 }
 
 function addLabelPlane(text: string, width: number, height: number, x: number, y: number, z: number, align: CanvasTextAlign, fontSize = 34): THREE.Mesh {
@@ -511,12 +624,11 @@ function dropChip(): void {
 }
 
 function animate(now: number): void {
-  const targetY = (mouse01.x - 0.5) * 0.25;
-  const targetX = (mouse01.y - 0.5) * -0.15;
-  const alpha = Math.min(0.12, 0.06 * Math.max(1, (now - (animate as unknown as { last?: number }).last!) / 16.7 || 1));
-  terminalGroup.rotation.y = THREE.MathUtils.lerp(terminalGroup.rotation.y, targetY, alpha);
-  terminalGroup.rotation.x = THREE.MathUtils.lerp(terminalGroup.rotation.x, targetX, alpha);
-  (animate as unknown as { last?: number }).last = now;
+  currentRotX += (targetRotX - currentRotX) * 0.055;
+  currentRotY += (targetRotY - currentRotY) * 0.055;
+  terminalGroup.rotation.x = currentRotX;
+  terminalGroup.rotation.y = currentRotY;
+  terminalGroup.position.z = Math.abs(currentRotY) * 0.3 + Math.abs(currentRotX) * 0.2;
 
   amberPhase = (Math.sin(now / 700) + 1) * 0.25;
   const amber = terminalGroup.getObjectByName('amberLight') as THREE.Mesh | undefined;
@@ -766,68 +878,125 @@ function drawTextTexture(
   plane.texture.needsUpdate = true;
 }
 
-function makeNormalMap(): THREE.CanvasTexture {
+function makeNormalMap(kind: 'plastic' | 'scratch'): THREE.CanvasTexture {
   const size = 512;
-  const source = new Float32Array(size * size);
-  for (let y = 0; y < size; y += 1) {
-    for (let x = 0; x < size; x += 1) {
-      source[y * size + x] =
-        Math.sin(x * 0.045) * 0.32 +
-        Math.sin(y * 0.061) * 0.26 +
-        Math.sin((x + y) * 0.023) * 0.22 +
-        Math.sin((x * 1.7 - y) * 0.012) * 0.18;
-    }
-  }
   const normalCanvas = document.createElement('canvas');
   normalCanvas.width = size;
   normalCanvas.height = size;
   const ctx = mustContext(normalCanvas);
   const image = ctx.createImageData(size, size);
-  for (let y = 1; y < size - 1; y += 1) {
-    for (let x = 1; x < size - 1; x += 1) {
-      const dx = source[y * size + x + 1] - source[y * size + x - 1];
-      const dy = source[(y + 1) * size + x] - source[(y - 1) * size + x];
-      const nx = -dx * 0.7;
-      const ny = -dy * 0.7;
-      const nz = 1;
-      const len = Math.hypot(nx, ny, nz);
-      const i = (y * size + x) * 4;
-      image.data[i] = ((nx / len) * 0.5 + 0.5) * 255;
-      image.data[i + 1] = ((ny / len) * 0.5 + 0.5) * 255;
-      image.data[i + 2] = ((nz / len) * 0.5 + 0.5) * 255;
+  for (let i = 0; i < image.data.length; i += 4) {
+    const x = (i / 4) % size;
+    const y = Math.floor(i / 4 / size);
+    const waveScale = kind === 'scratch' ? 0.18 : 0.04;
+    const nx = Math.sin(x * waveScale) * 0.5 + Math.sin(x * 0.13 + y * 0.07) * 0.3;
+    const ny = Math.sin(y * waveScale) * 0.5 + Math.sin(y * 0.11 + x * 0.09) * 0.3;
+    const scratch = Math.random() < (kind === 'scratch' ? 0.014 : 0.003) ? 0.8 : 0;
+    image.data[i] = Math.max(0, Math.min(255, 128 + nx * (kind === 'scratch' ? 32 : 18) + scratch * 40));
+    image.data[i + 1] = Math.max(0, Math.min(255, 128 + ny * (kind === 'scratch' ? 32 : 18) + scratch * 40));
+    image.data[i + 2] = 255;
       image.data[i + 3] = 255;
-    }
   }
   ctx.putImageData(image, 0, 0);
   const texture = new THREE.CanvasTexture(normalCanvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(2, 2);
+  texture.repeat.set(kind === 'scratch' ? 6 : 3, kind === 'scratch' ? 4 : 2);
   return texture;
 }
 
-function makeRoughnessMap(): THREE.CanvasTexture {
+function makeRoughnessMap(kind: 'fingerprint' | 'ground'): THREE.CanvasTexture {
   const roughCanvas = document.createElement('canvas');
-  roughCanvas.width = 512;
-  roughCanvas.height = 512;
+  roughCanvas.width = 256;
+  roughCanvas.height = 256;
   const ctx = mustContext(roughCanvas);
-  const image = ctx.createImageData(512, 512);
-  for (let y = 0; y < 512; y += 1) {
-    for (let x = 0; x < 512; x += 1) {
-      const smear = Math.sin(x * 0.025 + y * 0.01) * 28 + Math.sin((x - y) * 0.018) * 18;
-      const value = Math.max(80, Math.min(230, 180 + smear + Math.random() * 24));
-      const i = (y * 512 + x) * 4;
-      image.data[i] = value;
-      image.data[i + 1] = value;
-      image.data[i + 2] = value;
-      image.data[i + 3] = 255;
-    }
+  ctx.fillStyle = kind === 'ground' ? '#E6E6E6' : '#D9D9D9';
+  ctx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < (kind === 'ground' ? 32 : 12); i += 1) {
+    const x = Math.random() * 256;
+    const y = Math.random() * 256;
+    const radius = kind === 'ground' ? 16 + Math.random() * 70 : 20 + Math.random() * 30;
+    const grd = ctx.createRadialGradient(x, y, 2, x, y, radius);
+    grd.addColorStop(0, kind === 'ground' ? 'rgba(70,70,70,0.28)' : 'rgba(80,80,80,0.4)');
+    grd.addColorStop(1, 'rgba(80,80,80,0)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, 256, 256);
   }
-  ctx.putImageData(image, 0, 0);
   const texture = new THREE.CanvasTexture(roughCanvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(2, 2);
+  texture.repeat.set(kind === 'ground' ? 5 : 2, kind === 'ground' ? 4 : 2);
+  return texture;
+}
+
+function makeButtonRoughnessMap(): THREE.CanvasTexture {
+  const roughCanvas = document.createElement('canvas');
+  roughCanvas.width = 256;
+  roughCanvas.height = 256;
+  const ctx = mustContext(roughCanvas);
+  const grd = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  grd.addColorStop(0, 'rgb(120,120,120)');
+  grd.addColorStop(0.45, 'rgb(150,150,150)');
+  grd.addColorStop(1, 'rgb(210,210,210)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, 256, 256);
+  const texture = new THREE.CanvasTexture(roughCanvas);
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
+function makePanelAoMap(): THREE.CanvasTexture {
+  const aoCanvas = document.createElement('canvas');
+  aoCanvas.width = 256;
+  aoCanvas.height = 256;
+  const ctx = mustContext(aoCanvas);
+  const grd = ctx.createRadialGradient(128, 128, 40, 128, 128, 170);
+  grd.addColorStop(0, '#FFFFFF');
+  grd.addColorStop(1, '#777777');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, 256, 256);
+  return new THREE.CanvasTexture(aoCanvas);
+}
+
+function makeDirtMap(): THREE.CanvasTexture {
+  const dirtCanvas = document.createElement('canvas');
+  dirtCanvas.width = 512;
+  dirtCanvas.height = 512;
+  const ctx = mustContext(dirtCanvas);
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 8; i += 1) {
+    const x = Math.random() * 512;
+    const grad = ctx.createLinearGradient(x, 0, x + 4, 512);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(0.3 + Math.random() * 0.4, 'rgba(0,0,0,0.08)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x - 3, 0, 10, 512);
+  }
+  [
+    [0, 0],
+    [512, 0],
+    [0, 512],
+    [512, 512]
+  ].forEach(([cx, cy]) => {
+    const g = ctx.createRadialGradient(cx, cy, 10, cx, cy, 180);
+    g.addColorStop(0, 'rgba(0,0,0,0.22)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 512, 512);
+  });
+  const seamGrad = ctx.createLinearGradient(0, 220, 0, 300);
+  seamGrad.addColorStop(0, 'rgba(0,0,0,0)');
+  seamGrad.addColorStop(0.5, 'rgba(0,0,0,0.12)');
+  seamGrad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = seamGrad;
+  ctx.fillRect(0, 0, 512, 512);
+  const texture = new THREE.CanvasTexture(dirtCanvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1, 1);
   return texture;
 }
 
