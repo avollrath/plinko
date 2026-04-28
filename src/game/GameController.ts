@@ -103,6 +103,13 @@ export class GameController {
     const lowEnoughForSlot = body.position.y <= -6.04;
     const movingSlowly = body.velocity.length() < 0.9;
     const timedOut = elapsed > 11500;
+    const probablyStuck = elapsed > 2500 && body.velocity.length() < 0.08 && body.position.y > -5.7;
+
+    if (probablyStuck) {
+      body.velocity.x += (Math.random() - 0.5) * 1.1;
+      body.velocity.y -= 0.45;
+      body.wakeUp();
+    }
 
     if (lowEnoughForSlot && (movingSlowly || timedOut)) {
       this.resolveBall(getSlotForX(body.position.x));

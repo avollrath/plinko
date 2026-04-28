@@ -126,6 +126,14 @@ export class PlinkoPhysics {
       position: new CANNON.Vec3(0, 0, -0.12)
     });
     this.world.addBody(back);
+
+    const front = new CANNON.Body({
+      type: CANNON.Body.STATIC,
+      material: this.wallMaterial,
+      shape: new CANNON.Box(new CANNON.Vec3(boardConfig.width / 2, boardConfig.height / 2, 0.08)),
+      position: new CANNON.Vec3(0, 0, 0.48)
+    });
+    this.world.addBody(front);
   }
 
   private addSlotDividers(): void {

@@ -20,6 +20,11 @@ export class PlinkoScene {
   private readonly clock = new THREE.Clock();
   private readonly neonMaterials: THREE.MeshStandardMaterial[] = [];
   private readonly slotMaterials: THREE.MeshStandardMaterial[] = [];
+  private readonly pegHighlightMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.72
+  });
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -151,6 +156,24 @@ export class PlinkoScene {
       blob.position.set(x, y, -0.02 + index * 0.001);
       this.boardGroup.add(blob);
     });
+
+    const bubbleMaterial = new THREE.MeshStandardMaterial({
+      color: 0x1c71d6,
+      roughness: 0.42,
+      metalness: 0.12,
+      transparent: true,
+      opacity: 0.5
+    });
+    for (let index = 0; index < 90; index += 1) {
+      const bubble = new THREE.Mesh(new THREE.SphereGeometry(0.08 + Math.random() * 0.1, 14, 8), bubbleMaterial);
+      bubble.scale.z = 0.05;
+      bubble.position.set(
+        (Math.random() - 0.5) * (boardConfig.width - 0.8),
+        (Math.random() - 0.5) * (boardConfig.height - 1.6),
+        0.01
+      );
+      this.boardGroup.add(bubble);
+    }
   }
 
   private addDecorativeRails(): void {
@@ -198,6 +221,10 @@ export class PlinkoScene {
       const peg = new THREE.Mesh(geometry, material);
       peg.position.set(x, y, 0.2);
       this.pegGroup.add(peg);
+
+      const shine = new THREE.Mesh(new THREE.SphereGeometry(boardConfig.pegRadius * 0.28, 10, 8), this.pegHighlightMaterial);
+      shine.position.set(x - boardConfig.pegRadius * 0.32, y + boardConfig.pegRadius * 0.36, 0.31);
+      this.pegGroup.add(shine);
     });
   }
 
@@ -216,6 +243,58 @@ export class PlinkoScene {
       slot.position.set(x, y, 0.08);
       this.slotGroup.add(slot);
       this.slotMaterials.push(material);
+
+      const label = this.createLabelSprite(boardConfig.slotLabels[index], index % 2 === 0 ? '#ff5127' : '#ffe936');
+      label.position.set(x, y + 0.02, 0.34);
+      this.slotGroup.add(label);
     });
+
+    const dividerMaterial = new THREE.MeshStandardMaterial({
+      color: 0xbcefff,
+      emissive: 0x57e8ff,
+      emissiveIntensity: 0.38,
+      roughness: 0.18,
+      metalness: 0.86
+    });
+    const dividerGeometry = new THREE.CapsuleGeometry(0.055, 0.72, 8, 18);
+    for (let index = 0; index <= boardConfig.slotCount; index += 1) {
+      const x = -boardConfig.width / 2 + slotWidth * index;
+      const divider = new THREE.Mesh(dividerGeometry, dividerMaterial);
+      divider.position.set(x, -6.18, 0.25);
+      divider.rotation.z = Math.PI;
+      this.slotGroup.add(divider);
+    }
+  }
+
+  private createLabelSprite(text: string, fill: string): THREE.Sprite {
+    const canvas = document.createElement('canvas');
+    canvas.width = 192;
+    canvas.height = 192;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Could not create slot label canvas.');
+    }
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.font = '900 126px Arial';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.lineWidth = 12;
+    context.strokeStyle = '#ff6a1f';
+    context.shadowColor = 'rgba(255, 255, 0, 0.65)';
+    context.shadowBlur = 20;
+    context.strokeText(text, 96, 104);
+    context.fillStyle = fill;
+    context.fillText(text, 96, 104);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(0.55, 0.55, 1);
+    return sprite;
   }
 }
