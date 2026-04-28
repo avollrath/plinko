@@ -16,12 +16,9 @@ type TextPlane = {
   mesh: THREE.Mesh;
 };
 
-type DisplayLine = {
-  text: string;
-  size: number;
-  color?: string;
-  y: number;
-  align?: CanvasTextAlign;
+type DisplayModule = TextPlane & {
+  group: THREE.Group;
+  material: THREE.MeshStandardMaterial;
 };
 
 type Chip = {
@@ -50,7 +47,7 @@ renderer.setClearColor(0x070808, 1);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.88;
+renderer.toneMappingExposure = 0.82;
 renderer.outputEncoding = THREE.sRGBEncoding;
 
 const scene = new THREE.Scene();
@@ -70,6 +67,7 @@ RectAreaLightUniformsLib.init();
 
 const interactive: THREE.Object3D[] = [];
 let dropButtonMesh: THREE.Mesh;
+let keyLight: THREE.DirectionalLight;
 let dropButtonBaseZ = 0;
 let dropPressUntil = 0;
 let isPressingDrop = false;
@@ -123,31 +121,28 @@ const faceMaterial = plasticMaterial.clone();
 faceMaterial.color = new THREE.Color(0x2e3222);
 faceMaterial.aoMap = sharedDirtMap;
 faceMaterial.aoMapIntensity = 0.85;
+faceMaterial.normalMap = null;
+faceMaterial.roughnessMap = null;
 
 const insetMaterial = new THREE.MeshStandardMaterial({
   color: 0x1c2014,
   roughness: 0.92,
   metalness: 0.02,
-  normalMap: sharedPlasticNormalMap,
-  normalScale: new THREE.Vector2(0.18, 0.18),
   aoMap: sharedAoMap,
-  aoMapIntensity: 0.6
+  aoMapIntensity: 0.6,
+  side: THREE.FrontSide
 });
 
 const rimMaterial = new THREE.MeshStandardMaterial({
   color: 0x3d4530,
   roughness: 0.68,
-  metalness: 0.18,
-  normalMap: sharedScratchNormalMap,
-  normalScale: new THREE.Vector2(0.45, 0.45)
+  metalness: 0.18
 });
 
 const darkMetal = new THREE.MeshStandardMaterial({
   color: 0x1c201a,
   roughness: 0.45,
-  metalness: 0.82,
-  normalMap: sharedScratchNormalMap,
-  normalScale: new THREE.Vector2(0.8, 0.8)
+  metalness: 0.82
 });
 
 const phosphor = new THREE.MeshStandardMaterial({
@@ -166,32 +161,45 @@ const inactiveSegment = new THREE.MeshStandardMaterial({
   metalness: 0
 });
 
+const displayHousingMaterial = new THREE.MeshStandardMaterial({
+  color: 0x0e1208,
+  roughness: 0.7,
+  metalness: 0.25
+});
+
+const displayRimMaterial = new THREE.MeshStandardMaterial({
+  color: 0x2a3020,
+  roughness: 0.45,
+  metalness: 0.55
+});
+const staticLabels: Array<{ plane: TextPlane; text: string; align: CanvasTextAlign; fontSize: number }> = [];
+
 const bucketMaterials: THREE.MeshStandardMaterial[] = [];
-const vuRows: THREE.Mesh[][] = [];
-const distRows = new Map<BucketId, THREE.Mesh[]>();
-const progressBlocks: THREE.Mesh[] = [];
 const reelObjects: THREE.Object3D[] = [];
 
-const staticLabels: Array<{ plane: TextPlane; text: string; align: CanvasTextAlign; fontSize: number }> = [];
-const scoreDisplay = makeTextPlane(256, 64, 0.55, 0.1);
-const reelStatusDisplay = makeTextPlane(256, 64, 0.55, 0.06);
-const elapsedDisplay = makeTextPlane(256, 64, 0.55, 0.08);
-const landingLogDisplay = makeTextPlane(256, 256, 0.6, 0.55);
-const statDisplays = {
-  L: makeTextPlane(256, 128, 0.5, 0.055),
-  C: makeTextPlane(256, 128, 0.5, 0.055),
-  R: makeTextPlane(256, 128, 0.5, 0.055)
-};
-const footerStatus = makeTextPlane(256, 64, 0.48, 0.07);
+let scoreDisplay: DisplayModule;
+let reelStatusDisplay: DisplayModule;
+let dropStatsDisplay: DisplayModule;
+let landingLogDisplay: DisplayModule;
+let distChartDisplay: DisplayModule;
+let elapsedDisplay: DisplayModule;
+let vuDisplay: DisplayModule;
+let headerDisplay: TextPlane;
+let footerDisplay: TextPlane;
+let dropButtonLabel: TextPlane;
+let bucketRowDisplay: TextPlane;
+let vuLevels = [0.05, 0.08, 0.11, 0.14, 0.17, 0.2];
+let litBucketIndex = -1;
 
 buildLights();
 buildEnvironment();
 buildTerminal();
 buildPlinkoPegs();
 inspectSceneGeometry();
-document.fonts.ready.then(() => {
+document.fonts.load('400 20px "Share Tech Mono"').then(() => {
   fontsReady = true;
-  rebuildAllTextures();
+  initAllDisplays();
+  startRenderLoop();
 });
 
 window.addEventListener('resize', resize);
@@ -222,45 +230,36 @@ window.addEventListener('keydown', (event) => {
 });
 
 resize();
-requestAnimationFrame(animate);
 
 function buildLights(): void {
-  const key = new THREE.DirectionalLight(0xfff0c8, 1.4);
-  key.position.set(-2.5, 4, 3.5);
-  key.castShadow = true;
-  key.shadow.mapSize.set(2048, 2048);
-  key.shadow.bias = -0.0003;
-  key.shadow.camera.near = 0.5;
-  key.shadow.camera.far = 20;
-  key.shadow.camera.left = -4;
-  key.shadow.camera.right = 4;
-  key.shadow.camera.top = 4;
-  key.shadow.camera.bottom = -4;
-  scene.add(key);
+  keyLight = new THREE.DirectionalLight(0xffe4a0, 2.2);
+  keyLight.position.set(-3, 5, 4);
+  keyLight.castShadow = true;
+  keyLight.shadow.mapSize.set(4096, 4096);
+  keyLight.shadow.bias = -0.0002;
+  keyLight.shadow.normalBias = 0.02;
+  keyLight.shadow.camera.near = 1;
+  keyLight.shadow.camera.far = 22;
+  keyLight.shadow.camera.left = -5;
+  keyLight.shadow.camera.right = 5;
+  keyLight.shadow.camera.top = 5;
+  keyLight.shadow.camera.bottom = -5;
+  scene.add(keyLight);
 
-  const fill = new THREE.DirectionalLight(0x3a5060, 0.65);
-  fill.position.set(3.5, -1.5, 1);
-  scene.add(fill);
+  const bounce = new THREE.DirectionalLight(0x405870, 0.55);
+  bounce.position.set(0.5, -3, 2);
+  scene.add(bounce);
 
-  const rim = new THREE.DirectionalLight(0x8090a0, 0.35);
-  rim.position.set(0.5, 3, -3.5);
+  const rim = new THREE.DirectionalLight(0x708060, 0.3);
+  rim.position.set(3, 2, -4);
   scene.add(rim);
 
-  const topWash = new THREE.DirectionalLight(0xa0b080, 0.3);
-  topWash.position.set(0, 4, 1);
-  scene.add(topWash);
+  const screenRect = new THREE.RectAreaLight(0x18e84a, 0.55, 0.65, 1.15);
+  screenRect.position.set(0, 0.08, 0.65);
+  screenRect.lookAt(0, 0.08, 0);
+  terminalGroup.add(screenRect);
 
-  const screenGlow = new THREE.RectAreaLight(0x18ff58, 0.6, 0.65, 1.1);
-  screenGlow.position.set(0, 0.08, 0.58);
-  screenGlow.lookAt(0, 0.08, 0);
-  terminalGroup.add(screenGlow);
-
-  const bounceFill = new THREE.RectAreaLight(0xc8e8c0, 0.15, 3.5, 2.5);
-  bounceFill.position.set(0, 0, 3.5);
-  bounceFill.lookAt(0, 0, 0);
-  scene.add(bounceFill);
-
-  scene.add(new THREE.AmbientLight(0x0d1208, 0.5));
+  scene.add(new THREE.AmbientLight(0x0c140a, 0.6));
 }
 
 function buildEnvironment(): void {
@@ -270,9 +269,7 @@ function buildEnvironment(): void {
       color: 0x0c0e0a,
       roughness: 0.96,
       metalness: 0,
-      roughnessMap: makeRoughnessMap('ground'),
-      normalMap: sharedScratchNormalMap,
-      normalScale: new THREE.Vector2(0.18, 0.18)
+      roughnessMap: makeRoughnessMap('ground')
     })
   );
   ground.rotation.x = -Math.PI / 2;
@@ -296,7 +293,7 @@ function buildTerminal(): void {
 
   addPanel(0.72, 1.7, -1.1, 0);
   addPanel(1.5, 1.9, 0.08, 0.05);
-  addPanel(0.72, 1.7, 1.22, 0);
+  addPanel(0.66, 1.7, 1.18, 0);
 
   buildHeaderFooter();
   buildCenterPanel();
@@ -314,8 +311,7 @@ function addPanel(width: number, height: number, x: number, y: number): void {
     color: 0x1a1e10,
     roughness: 0.62,
     metalness: 0.3,
-    normalMap: sharedScratchNormalMap,
-    normalScale: new THREE.Vector2(0.35, 0.35)
+    side: THREE.FrontSide
   });
   const t = 0.008;
   [
@@ -341,10 +337,7 @@ function buildHeaderFooter(): void {
   const railMat = new THREE.MeshStandardMaterial({
     color: 0x252d18,
     roughness: 0.85,
-    metalness: 0.05,
-    normalMap: sharedPlasticNormalMap,
-    roughnessMap: sharedRoughnessMap,
-    normalScale: new THREE.Vector2(0.3, 0.3)
+    metalness: 0.05
   });
   const header = new THREE.Mesh(makeRoundedBox(3.0, 0.16, 0.03, 0.018, 3), railMat);
   header.position.set(0, 0.98, 0.19);
@@ -354,11 +347,12 @@ function buildHeaderFooter(): void {
   footer.position.y = -0.98;
   terminalGroup.add(footer);
 
-  addLabelPlane('PLNK-7 // UNIT', 0.72, 0.06, -0.98, 0.98, 0.211, 'left');
-  addLabelPlane('MDL-7734 // REV.C', 0.72, 0.06, 0.95, 0.98, 0.211, 'right');
-  addLabelPlane('(C) 1984 PLNK SYSTEMS', 0.76, 0.06, -0.96, -0.98, 0.211, 'left');
-  footerStatus.mesh.position.set(1.03, -0.98, 0.212);
-  terminalGroup.add(footerStatus.mesh);
+  headerDisplay = makeTextPlane(1024, 128, 2.72, 0.11, 0.18);
+  headerDisplay.mesh.position.set(0, 0.98, 0.212);
+  terminalGroup.add(headerDisplay.mesh);
+  footerDisplay = makeTextPlane(1024, 96, 2.72, 0.105, 0.18);
+  footerDisplay.mesh.position.set(0, -0.98, 0.212);
+  terminalGroup.add(footerDisplay.mesh);
 
   const lightMats = [
     new THREE.MeshStandardMaterial({ color: 0x3a0a0a, emissive: 0x330000, emissiveIntensity: 0.08, roughness: 0.35 }),
@@ -371,13 +365,6 @@ function buildHeaderFooter(): void {
     lamp.name = index === 1 ? 'amberLight' : '';
     detailGroup.add(lamp);
   });
-
-  for (let i = 0; i < 10; i += 1) {
-    const block = new THREE.Mesh(makeRoundedBox(0.045, 0.025, 0.009, 0.004, 1), inactiveSegment.clone());
-    block.position.set(-0.24 + i * 0.054, -0.98, 0.218);
-    progressBlocks.push(block);
-    detailGroup.add(block);
-  }
 }
 
 function buildCenterPanel(): void {
@@ -406,8 +393,6 @@ function buildBuckets(): void {
       color: 0x232818,
       roughness: 0.9,
       metalness: 0.03,
-      normalMap: sharedPlasticNormalMap,
-      normalScale: new THREE.Vector2(0.18, 0.18),
       emissive: 0x30ff70,
       emissiveIntensity: 0
     });
@@ -415,13 +400,15 @@ function buildBuckets(): void {
     mesh.position.set(-0.22 + index * 0.1, -0.52, 0.205);
     bucketMaterials.push(mat);
     terminalGroup.add(mesh);
-    addLabelPlane(`${bucket.id}\n${bucket.points}`, 0.09, 0.055, mesh.position.x, -0.52, 0.216, 'center', 22, 64, 64);
   });
+  bucketRowDisplay = makeTextPlane(512, 128, 0.72, 0.1, 0.18);
+  bucketRowDisplay.mesh.position.set(0.08, -0.52, 0.219);
+  terminalGroup.add(bucketRowDisplay.mesh);
 }
 
 function buildDropControls(): void {
-  const wellMat = new THREE.MeshStandardMaterial({ color: 0x161810, roughness: 0.86, metalness: 0.08, normalMap: sharedScratchNormalMap });
-  const knobMat = new THREE.MeshStandardMaterial({ color: 0x1a1c10, roughness: 0.6, metalness: 0.3, normalMap: sharedScratchNormalMap, normalScale: new THREE.Vector2(0.35, 0.35) });
+  const wellMat = new THREE.MeshStandardMaterial({ color: 0x161810, roughness: 0.86, metalness: 0.08 });
+  const knobMat = new THREE.MeshStandardMaterial({ color: 0x1a1c10, roughness: 0.6, metalness: 0.3 });
   addKnob(-0.34, -0.78, 'FREQ', wellMat, knobMat, -0.55);
   addKnob(0.5, -0.78, 'BIAS', wellMat, knobMat, 0.75);
 
@@ -429,9 +416,7 @@ function buildDropControls(): void {
     color: 0x2c3020,
     roughness: 0.78,
     metalness: 0.06,
-    roughnessMap: makeButtonRoughnessMap(),
-    normalMap: sharedPlasticNormalMap,
-    normalScale: new THREE.Vector2(0.25, 0.25)
+    roughnessMap: makeButtonRoughnessMap()
   });
   dropButtonMesh = makeDomeButton(dropMat);
   dropButtonMesh.position.set(0.08, -0.78, 0.23);
@@ -444,68 +429,56 @@ function buildDropControls(): void {
     new THREE.MeshStandardMaterial({
       color: 0x1a1e10,
       roughness: 0.4,
-      metalness: 0.7,
-      normalMap: sharedScratchNormalMap,
-      normalScale: new THREE.Vector2(0.35, 0.35)
+      metalness: 0.7
     })
   );
   collar.position.set(0.08, -0.78, 0.222);
   terminalGroup.add(collar);
-  addLabelPlane('DROP', 0.22, 0.07, 0.08, -0.78, 0.252, 'center', 36, 256, 64);
+  dropButtonLabel = makeTextPlane(256, 256, 0.18, 0.18, 0.22);
+  dropButtonLabel.mesh.position.set(0.08, -0.78, 0.252);
+  terminalGroup.add(dropButtonLabel.mesh);
 }
 
 function buildLeftPanel(): void {
-  addLabelPlane('VU METER', 0.42, 0.045, -1.1, 0.66, 0.2, 'center');
-  for (let row = 0; row < 6; row += 1) {
-    const rowMeshes: THREE.Mesh[] = [];
-    for (let col = 0; col < 12; col += 1) {
-      const seg = new THREE.Mesh(makeRoundedBox(0.03, 0.014, 0.008, 0.002, 1), inactiveSegment.clone());
-      seg.position.set(-1.265 + col * 0.03, 0.58 - row * 0.035, 0.202);
-      rowMeshes.push(seg);
-      detailGroup.add(seg);
-    }
-    vuRows.push(rowMeshes);
-  }
+  vuDisplay = makeDisplayModule(0.58, 0.44, 512, 384, 0.2);
+  vuDisplay.group.position.set(-1.1, 0.46, 0.206);
+  terminalGroup.add(vuDisplay.group);
 
-  addHousing(-1.1, 0.18, 0.62, 0.16);
-  scoreDisplay.mesh.position.set(-1.1, 0.18, 0.218);
-  terminalGroup.add(scoreDisplay.mesh);
+  scoreDisplay = makeDisplayModule(0.58, 0.145, 512, 128, 0.22);
+  scoreDisplay.group.position.set(-1.1, 0.08, 0.206);
+  terminalGroup.add(scoreDisplay.group);
 
-  const reelMat = new THREE.MeshStandardMaterial({ color: 0x2c3020, roughness: 0.7, metalness: 0.2, normalMap: sharedScratchNormalMap, normalScale: new THREE.Vector2(0.25, 0.25) });
-  addReel(-1.19, -0.1, reelMat);
-  addReel(-1.01, -0.1, reelMat);
+  const reelMat = new THREE.MeshStandardMaterial({ color: 0x2c3020, roughness: 0.7, metalness: 0.2 });
+  addReel(-1.19, -0.18, reelMat);
+  addReel(-1.01, -0.18, reelMat);
 
-  reelStatusDisplay.mesh.position.set(-1.1, -0.34, 0.218);
-  terminalGroup.add(reelStatusDisplay.mesh);
-  addLabelPlane('REEL STATUS', 0.5, 0.04, -1.1, -0.27, 0.205, 'center');
+  reelStatusDisplay = makeDisplayModule(0.58, 0.11, 512, 96, 0.2);
+  reelStatusDisplay.group.position.set(-1.1, -0.39, 0.206);
+  terminalGroup.add(reelStatusDisplay.group);
 
-  (['L', 'C', 'R'] as const).forEach((key, index) => {
-    addLabelPlane(key, 0.08, 0.04, -1.32, -0.52 - index * 0.075, 0.205, 'left');
-    statDisplays[key].mesh.position.set(-1.08, -0.52 - index * 0.075, 0.215);
-    terminalGroup.add(statDisplays[key].mesh);
-  });
+  dropStatsDisplay = makeDisplayModule(0.58, 0.22, 512, 192, 0.2);
+  dropStatsDisplay.group.position.set(-1.1, -0.66, 0.206);
+  terminalGroup.add(dropStatsDisplay.group);
 }
 
 function buildRightPanel(): void {
-  addLabelPlane('LANDING LOG', 0.48, 0.045, 1.22, 0.66, 0.2, 'center');
-  landingLogDisplay.mesh.position.set(1.22, 0.35, 0.21);
-  terminalGroup.add(landingLogDisplay.mesh);
+  landingLogDisplay = makeDisplayModule(0.68, 0.68, 512, 512, 0.18);
+  landingLogDisplay.group.position.set(1.18, 0.38, 0.206);
+  terminalGroup.add(landingLogDisplay.group);
 
-  buckets.forEach((bucket, row) => {
-    addLabelPlane(bucket.id, 0.12, 0.035, 0.93, -0.02 - row * 0.055, 0.205, 'left', 44);
-    const segments: THREE.Mesh[] = [];
-    for (let col = 0; col < 8; col += 1) {
-      const seg = new THREE.Mesh(makeRoundedBox(0.035, 0.014, 0.008, 0.002, 1), inactiveSegment.clone());
-      seg.position.set(1.06 + col * 0.04, -0.02 - row * 0.055, 0.205);
-      segments.push(seg);
-    detailGroup.add(seg);
-    }
-    distRows.set(bucket.id, segments);
+  distChartDisplay = makeDisplayModule(0.68, 0.68, 512, 512, 0.18);
+  distChartDisplay.group.position.set(1.18, -0.34, 0.206);
+  terminalGroup.add(distChartDisplay.group);
+
+  elapsedDisplay = makeDisplayModule(0.58, 0.11, 512, 96, 0.22);
+  elapsedDisplay.group.position.set(1.18, -0.78, 0.206);
+  terminalGroup.add(elapsedDisplay.group);
+
+  console.info('Right panel module widths');
+  [landingLogDisplay.group, distChartDisplay.group, elapsedDisplay.group].forEach((child) => {
+    const size = new THREE.Box3().setFromObject(child).getSize(new THREE.Vector3());
+    console.info(child.name || 'right-panel-child', size.x, size.y, size.z);
   });
-
-  addHousing(1.22, -0.7, 0.62, 0.14);
-  elapsedDisplay.mesh.position.set(1.22, -0.7, 0.218);
-  terminalGroup.add(elapsedDisplay.mesh);
 }
 
 function addScreenBezel(x: number, y: number, z: number): void {
@@ -538,10 +511,8 @@ function addScreenBezel(x: number, y: number, z: number): void {
   geometry.center();
   const bezelMaterial = new THREE.MeshStandardMaterial({
     color: 0x141810,
-    roughness: 0.5,
-    metalness: 0.45,
-    normalMap: sharedScratchNormalMap,
-    normalScale: new THREE.Vector2(0.65, 0.65)
+    roughness: 0.42,
+    metalness: 0.5
   });
   const bezel = new THREE.Mesh(geometry, bezelMaterial);
   bezel.position.set(x, y, z);
@@ -586,14 +557,13 @@ function addReel(x: number, y: number, mat: THREE.Material): void {
 
 function addScrew(x: number, y: number): void {
   const screw = new THREE.Mesh(makeCountersunkScrewGeometry(), new THREE.MeshStandardMaterial({
-    color: 0x1a1e16,
-    roughness: 0.35,
-    metalness: 0.85,
-    normalMap: sharedScratchNormalMap,
-    normalScale: new THREE.Vector2(0.5, 0.5)
+    color: 0x1c2018,
+    roughness: 0.3,
+    metalness: 0.8
   }));
   screw.rotation.x = Math.PI / 2;
   screw.position.set(x, y, 0.19);
+  screw.castShadow = false;
   detailGroup.add(screw);
   const crossA = new THREE.Mesh(makeRoundedBox(0.025, 0.003, 0.002, 0.001, 1), darkMetal);
   const crossB = crossA.clone();
@@ -745,11 +715,10 @@ function animate(now: number): void {
   }
 
   reelObjects[0].rotation.z = reelAngle;
-  progressBlocks.forEach((block, index) => {
-    const mat = block.material as THREE.MeshStandardMaterial;
-    mat.emissiveIntensity = activeChip && index <= progressPhase ? 0.55 : 0;
-    mat.color.set(activeChip && index <= progressPhase ? 0x4dff91 : 0x112210);
-  });
+  drawFooter(footerDisplay.context, activeChip ? progressPhase / 10 : 0, activeChip ? 'ACTIVE' : 'STANDBY');
+  footerDisplay.texture.needsUpdate = true;
+  keyLight.position.x = -3 + currentRotY * -1.5;
+  keyLight.position.y = 5 + currentRotX * -1.0;
 
   const elapsed = Math.floor((performance.now() - startTime) / 1000);
   if (fontsReady && elapsed !== lastSecond) {
@@ -823,6 +792,9 @@ function landChip(bucket: Bucket): void {
   else stats.R += 1;
   landings.unshift({ stamp: formatTime(Math.floor((performance.now() - startTime) / 1000)), id: bucket.id, points: bucket.points });
   landings.splice(8);
+  litBucketIndex = buckets.indexOf(bucket);
+  drawBucketRow(bucketRowDisplay.context, litBucketIndex);
+  bucketRowDisplay.texture.needsUpdate = true;
   const mat = bucketMaterials[buckets.indexOf(bucket)];
   mat.emissiveIntensity = 0.8;
   window.setTimeout(() => fadeBucket(mat), 16);
@@ -833,6 +805,11 @@ function landChip(bucket: Bucket): void {
 function fadeBucket(mat: THREE.MeshStandardMaterial): void {
   mat.emissiveIntensity = Math.max(0, mat.emissiveIntensity - 0.025);
   if (mat.emissiveIntensity > 0) window.setTimeout(() => fadeBucket(mat), 16);
+  else if (fontsReady) {
+    litBucketIndex = -1;
+    drawBucketRow(bucketRowDisplay.context, litBucketIndex);
+    bucketRowDisplay.texture.needsUpdate = true;
+  }
 }
 
 function drawScreen(): void {
@@ -900,59 +877,39 @@ function drawScreen(): void {
 
 function updateAllReadouts(force: boolean): void {
   if (!fontsReady) return;
-  drawDisplay(scoreDisplay, [
-    { text: 'SCORE_CTR', size: scoreDisplay.canvas.height * 0.2, color: '#2A7A48', y: 0.28, align: 'center' },
-    { text: String(score).padStart(4, '0'), size: scoreDisplay.canvas.height * 0.52, y: 0.68, align: 'center' }
-  ]);
-  drawDisplay(reelStatusDisplay, [
-    { text: activeChip ? 'ACTIVE' : 'STANDBY', size: reelStatusDisplay.canvas.height * 0.42, y: 0.52, align: 'center' }
-  ]);
-  drawDisplay(elapsedDisplay, [
-    { text: formatTime(lastSecond < 0 ? 0 : lastSecond), size: elapsedDisplay.canvas.height * 0.55, y: 0.52, align: 'center' }
-  ]);
-  drawDisplay(footerStatus, [
-    { text: activeChip ? 'ACTIVE' : 'STANDBY', size: footerStatus.canvas.height * 0.34, y: 0.52, align: 'right' }
-  ]);
-  (['L', 'C', 'R'] as const).forEach((key) => {
-    drawDisplay(statDisplays[key], [
-      { text: `${key}  ${String(stats[key]).padStart(2, '0')}`, size: statDisplays[key].canvas.height * 0.34, y: 0.52, align: 'left' }
-    ]);
-  });
+  drawScore(scoreDisplay.context, score);
+  scoreDisplay.texture.needsUpdate = true;
+  drawReelStatus(reelStatusDisplay.context, Boolean(activeChip));
+  reelStatusDisplay.texture.needsUpdate = true;
+  drawDropStats(dropStatsDisplay.context, stats.L, stats.C, stats.R);
+  dropStatsDisplay.texture.needsUpdate = true;
+  drawElapsed(elapsedDisplay.context, lastSecond < 0 ? 0 : lastSecond);
+  elapsedDisplay.texture.needsUpdate = true;
   drawLandingLog();
   updateDistribution();
   if (force) updateVu();
 }
 
 function drawLandingLog(): void {
-  const lines = landings.length ? landings.map((entry) => `${entry.stamp}    ${entry.id} / ${entry.points}`) : ['-- AWAITING DROP --'];
-  drawDisplay(
-    landingLogDisplay,
-    lines.map((line, index) => ({
-      text: line,
-      size: landingLogDisplay.canvas.height * 0.085,
-      y: 0.14 + index * 0.1,
-      align: 'left' as CanvasTextAlign
-    }))
+  drawLandingLogCanvas(
+    landingLogDisplay.context,
+    landings.map((entry) => ({ time: entry.stamp, slot: entry.id, pts: entry.points }))
   );
+  landingLogDisplay.texture.needsUpdate = true;
 }
 
 function updateVu(): void {
-  vuRows.forEach((row) => {
-    const active = activeChip ? 4 + Math.floor(Math.random() * 7) : 0;
-    row.forEach((mesh, index) => {
-      mesh.material = index < active ? phosphor : inactiveSegment;
-    });
+  vuLevels = vuLevels.map((level, index) => {
+    const target = activeChip ? 0.2 + Math.random() * 0.75 : 0.05 + index * 0.03;
+    return THREE.MathUtils.lerp(level, target, activeChip ? 0.55 : 0.08);
   });
+  drawVU(vuDisplay.context, vuLevels);
+  vuDisplay.texture.needsUpdate = true;
 }
 
 function updateDistribution(): void {
-  const max = Math.max(1, ...Array.from(distribution.values()));
-  buckets.forEach((bucket) => {
-    const active = Math.round(((distribution.get(bucket.id) ?? 0) / max) * 8);
-    distRows.get(bucket.id)?.forEach((mesh, index) => {
-      mesh.material = index < active ? phosphor : inactiveSegment;
-    });
-  });
+  drawDistChart(distChartDisplay.context, buckets.map((bucket) => distribution.get(bucket.id) ?? 0));
+  distChartDisplay.texture.needsUpdate = true;
 }
 
 function getPegs(): Array<{ x: number; y: number }> {
@@ -971,7 +928,7 @@ function getPegs(): Array<{ x: number; y: number }> {
   return pegs;
 }
 
-function makeTextPlane(canvasWidth: number, canvasHeight: number, worldWidth: number, worldHeight: number): TextPlane {
+function makeTextPlane(canvasWidth: number, canvasHeight: number, worldWidth: number, worldHeight: number, emissiveIntensity = 0.2): TextPlane {
   const textCanvas = document.createElement('canvas');
   textCanvas.width = canvasWidth;
   textCanvas.height = canvasHeight;
@@ -983,7 +940,7 @@ function makeTextPlane(canvasWidth: number, canvasHeight: number, worldWidth: nu
     map: texture,
     emissiveMap: texture,
     emissive: 0x30ff70,
-    emissiveIntensity: 0.3,
+    emissiveIntensity,
     transparent: true,
     roughness: 0.24,
     metalness: 0
@@ -992,7 +949,39 @@ function makeTextPlane(canvasWidth: number, canvasHeight: number, worldWidth: nu
   return { canvas: textCanvas, context, texture, mesh };
 }
 
-function rebuildAllTextures(): void {
+function makeDisplayModule(planeWidth: number, planeHeight: number, canvasWidth: number, canvasHeight: number, emissiveIntensity: number): DisplayModule {
+  const display = makeTextPlane(canvasWidth, canvasHeight, planeWidth, planeHeight, emissiveIntensity);
+  const group = new THREE.Group();
+  const planeMaterial = display.mesh.material as THREE.MeshStandardMaterial;
+  planeMaterial.color = new THREE.Color(0xffffff);
+  planeMaterial.emissive = new THREE.Color(0x20ff60);
+  planeMaterial.emissiveIntensity = emissiveIntensity;
+  planeMaterial.roughness = 0.12;
+  planeMaterial.metalness = 0;
+  planeMaterial.normalMap = null;
+  planeMaterial.roughnessMap = null;
+  planeMaterial.aoMap = null;
+
+  const housing = new THREE.Mesh(makeRoundedBox(planeWidth + 0.04, planeHeight + 0.04, 0.022, 0.005, 2), displayHousingMaterial);
+  housing.position.z = -0.008;
+  housing.castShadow = true;
+  group.add(housing);
+
+  const rim = new THREE.Mesh(makeRoundedBox(planeWidth + 0.028, planeHeight + 0.028, 0.006, 0.004, 2), displayRimMaterial);
+  rim.position.z = 0.001;
+  group.add(rim);
+
+  display.mesh.position.z = 0.014;
+  group.add(display.mesh);
+
+  return {
+    ...display,
+    group,
+    material: display.mesh.material as THREE.MeshStandardMaterial
+  };
+}
+
+function initAllDisplays(): void {
   staticLabels.forEach(({ plane, text, align, fontSize }) => {
     drawDisplay(
       plane,
@@ -1005,33 +994,309 @@ function rebuildAllTextures(): void {
       }))
     );
   });
+  drawHeader(headerDisplay.context);
+  headerDisplay.texture.needsUpdate = true;
+  drawFooter(footerDisplay.context, 0, 'STANDBY');
+  footerDisplay.texture.needsUpdate = true;
+  drawDropBtn(dropButtonLabel.context);
+  dropButtonLabel.texture.needsUpdate = true;
+  drawBucketRow(bucketRowDisplay.context, litBucketIndex);
+  bucketRowDisplay.texture.needsUpdate = true;
   drawScreen();
   updateAllReadouts(true);
 }
 
-function drawDisplay(plane: TextPlane, lines: DisplayLine[]): void {
-  const { canvas: displayCanvas, context } = plane;
-  context.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
-  context.fillStyle = '#040C04';
-  context.fillRect(0, 0, displayCanvas.width, displayCanvas.height);
-  context.strokeStyle = 'rgba(0,0,0,0.8)';
-  context.lineWidth = 4;
-  context.strokeRect(2, 2, displayCanvas.width - 4, displayCanvas.height - 4);
+function startRenderLoop(): void {
+  requestAnimationFrame(animate);
+}
 
+function clearDisplay(context: CanvasRenderingContext2D, width: number, height: number): void {
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = '#030804';
+  context.fillRect(0, 0, width, height);
+  context.fillStyle = 'rgba(0,0,0,0.18)';
+  for (let y = 0; y < height; y += 4) context.fillRect(0, y, width, 1);
+  const vignette = context.createRadialGradient(width / 2, height / 2, height * 0.2, width / 2, height / 2, height * 0.8);
+  vignette.addColorStop(0, 'rgba(0,0,0,0)');
+  vignette.addColorStop(1, 'rgba(0,0,0,0.35)');
+  context.fillStyle = vignette;
+  context.fillRect(0, 0, width, height);
+}
+
+function drawDisplay(plane: TextPlane, lines: Array<{ text: string; size: number; y: number; align?: CanvasTextAlign; color?: string }>): void {
+  clearDisplay(plane.context, plane.canvas.width, plane.canvas.height);
   lines.forEach((line) => {
-    context.font = `${line.size}px "Share Tech Mono", monospace`;
-    context.fillStyle = line.color || '#4DFF91';
-    context.textBaseline = 'middle';
-    context.textAlign = line.align || 'left';
-    const x = line.align === 'center' ? displayCanvas.width / 2 : line.align === 'right' ? displayCanvas.width - 12 : 12;
-    context.fillText(line.text, x, line.y * displayCanvas.height);
+    plane.context.font = `400 ${line.size}px "Share Tech Mono"`;
+    plane.context.fillStyle = line.color || '#4DFF91';
+    plane.context.textBaseline = 'middle';
+    plane.context.textAlign = line.align || 'left';
+    const x = line.align === 'center' ? plane.canvas.width / 2 : line.align === 'right' ? plane.canvas.width - 12 : 12;
+    plane.context.fillText(line.text, x, line.y * plane.canvas.height);
   });
-
-  context.fillStyle = 'rgba(0,0,0,0.07)';
-  for (let y = 0; y < displayCanvas.height; y += 3) {
-    context.fillRect(0, y, displayCanvas.width, 1);
-  }
   plane.texture.needsUpdate = true;
+}
+
+function drawScore(context: CanvasRenderingContext2D, nextScore: number): void {
+  clearDisplay(context, 512, 128);
+  context.font = '400 22px "Share Tech Mono"';
+  context.fillStyle = '#2A7A48';
+  context.textAlign = 'left';
+  context.textBaseline = 'top';
+  context.fillText('SCORE_CTR', 20, 12);
+  context.font = '400 72px "Share Tech Mono"';
+  context.fillStyle = '#5DFF9A';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  const value = String(nextScore).padStart(4, '0');
+  context.fillText(value, 256, 82);
+  context.globalAlpha = 0.3;
+  context.fillText(value, 256, 82);
+  context.globalAlpha = 1;
+}
+
+function drawReelStatus(context: CanvasRenderingContext2D, active: boolean): void {
+  clearDisplay(context, 512, 96);
+  context.font = '400 18px "Share Tech Mono"';
+  context.fillStyle = '#2A7A48';
+  context.textAlign = 'left';
+  context.textBaseline = 'top';
+  context.fillText('REEL_STATUS', 20, 8);
+  context.font = '400 40px "Share Tech Mono"';
+  context.fillStyle = active ? '#5DFF9A' : '#1A6A38';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText(active ? 'ACTIVE' : 'STANDBY', 256, 62);
+}
+
+function drawDropStats(context: CanvasRenderingContext2D, left: number, center: number, right: number): void {
+  clearDisplay(context, 512, 192);
+  context.font = '400 18px "Share Tech Mono"';
+  context.fillStyle = '#2A7A48';
+  context.textBaseline = 'top';
+  context.textAlign = 'left';
+  context.fillText('DROP_STATS', 20, 10);
+  const rows: Array<[string, number]> = [
+    ['L', left],
+    ['C', center],
+    ['R', right]
+  ];
+  rows.forEach(([label, value], index) => {
+    const y = 50 + index * 46;
+    context.font = '400 30px "Share Tech Mono"';
+    context.fillStyle = '#3A8A58';
+    context.textAlign = 'left';
+    context.fillText(label, 30, y);
+    context.fillStyle = '#5DFF9A';
+    context.textAlign = 'right';
+    context.fillText(String(value).padStart(2, '0'), 490, y);
+    context.strokeStyle = '#1A4A28';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(20, y + 36);
+    context.lineTo(492, y + 36);
+    context.stroke();
+  });
+}
+
+function drawLandingLogCanvas(context: CanvasRenderingContext2D, entries: Array<{ time: string; slot: string; pts: number }>): void {
+  clearDisplay(context, 512, 512);
+  context.font = '400 22px "Share Tech Mono"';
+  context.fillStyle = '#2A7A48';
+  context.textBaseline = 'top';
+  context.textAlign = 'left';
+  context.fillText('LANDING_LOG', 20, 14);
+  context.strokeStyle = '#1A4A28';
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(20, 44);
+  context.lineTo(492, 44);
+  context.stroke();
+
+  if (entries.length === 0) {
+    context.font = '400 24px "Share Tech Mono"';
+    context.fillStyle = '#1A5A30';
+    context.textAlign = 'center';
+    context.fillText('-- AWAITING DROP --', 256, 280);
+    return;
+  }
+
+  entries.slice(-8).reverse().forEach((entry, index) => {
+    const y = 60 + index * 56;
+    context.font = '400 26px "Share Tech Mono"';
+    context.fillStyle = '#2A7A48';
+    context.textAlign = 'left';
+    context.fillText(entry.time, 20, y);
+    context.fillStyle = '#5DFF9A';
+    context.textAlign = 'right';
+    context.fillText(`${entry.slot} / ${entry.pts}`, 492, y);
+    context.strokeStyle = '#0A2A14';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(20, y + 40);
+    context.lineTo(492, y + 40);
+    context.stroke();
+  });
+}
+
+function drawDistChart(context: CanvasRenderingContext2D, counts: number[]): void {
+  clearDisplay(context, 512, 512);
+  context.font = '400 22px "Share Tech Mono"';
+  context.fillStyle = '#2A7A48';
+  context.textBaseline = 'top';
+  context.textAlign = 'left';
+  context.fillText('DIST_CHART', 20, 14);
+  const labels = ['L3', 'L2', 'L1', 'CTR', 'R1', 'R2', 'R3'];
+  const total = Math.max(1, counts.reduce((sum, value) => sum + value, 0));
+  const segW = 18;
+  const segGap = 4;
+  const segH = 22;
+
+  labels.forEach((label, index) => {
+    const y = 58 + index * 62;
+    context.font = '400 24px "Share Tech Mono"';
+    context.fillStyle = '#3A8A58';
+    context.textAlign = 'left';
+    context.fillText(label, 20, y);
+    const activeSeg = Math.round((counts[index] / total) * 14);
+    for (let segment = 0; segment < 14; segment += 1) {
+      const sx = 120 + segment * (segW + segGap);
+      const active = segment < activeSeg;
+      context.fillStyle = active ? '#4DFF91' : '#0A2010';
+      context.fillRect(sx, y + 2, segW, segH);
+      if (active) {
+        context.fillStyle = 'rgba(255,255,255,0.15)';
+        context.fillRect(sx, y + 2, segW, 3);
+      }
+    }
+    context.font = '400 20px "Share Tech Mono"';
+    context.fillStyle = '#2A7A48';
+    context.textAlign = 'right';
+    context.fillText(String(counts[index]), 500, y);
+  });
+}
+
+function drawElapsed(context: CanvasRenderingContext2D, seconds: number): void {
+  clearDisplay(context, 512, 96);
+  context.font = '400 18px "Share Tech Mono"';
+  context.fillStyle = '#2A7A48';
+  context.textBaseline = 'top';
+  context.textAlign = 'left';
+  context.fillText('ELAPSED_TIME', 20, 8);
+  const minutes = String(Math.floor(seconds / 60)).padStart(2, '0');
+  const remaining = String(seconds % 60).padStart(2, '0');
+  context.font = '400 48px "Share Tech Mono"';
+  context.fillStyle = '#5DFF9A';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText(`${minutes}:${remaining}`, 256, 65);
+}
+
+function drawDropBtn(context: CanvasRenderingContext2D): void {
+  context.clearRect(0, 0, 256, 256);
+  context.fillStyle = '#0A100A';
+  context.fillRect(0, 0, 256, 256);
+  context.strokeStyle = '#2A5A38';
+  context.lineWidth = 3;
+  context.beginPath();
+  context.arc(128, 128, 110, 0, Math.PI * 2);
+  context.stroke();
+  context.font = '400 52px "Share Tech Mono"';
+  context.fillStyle = '#5DFF9A';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillText('DROP', 128, 128);
+}
+
+function drawBucketRow(context: CanvasRenderingContext2D, litIndex: number): void {
+  clearDisplay(context, 512, 128);
+  const labels = ['L3\n100', 'L2\n200', 'L1\n500', 'CTR\n1000', 'R1\n500', 'R2\n200', 'R3\n100'];
+  const bucketWidth = 512 / 7;
+  labels.forEach((label, index) => {
+    const [name, points] = label.split('\n');
+    const cx = index * bucketWidth + bucketWidth / 2;
+    const active = index === litIndex;
+    if (index > 0) {
+      context.strokeStyle = '#1A4A28';
+      context.lineWidth = 1;
+      context.beginPath();
+      context.moveTo(index * bucketWidth, 0);
+      context.lineTo(index * bucketWidth, 128);
+      context.stroke();
+    }
+    context.font = '400 26px "Share Tech Mono"';
+    context.fillStyle = active ? '#FFFFFF' : '#3A8A58';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(name, cx, 38);
+    context.font = '400 30px "Share Tech Mono"';
+    context.fillStyle = active ? '#5DFF9A' : '#2A6A40';
+    context.fillText(points, cx, 90);
+  });
+}
+
+function drawHeader(context: CanvasRenderingContext2D): void {
+  context.clearRect(0, 0, 1024, 128);
+  context.fillStyle = '#080E06';
+  context.fillRect(0, 0, 1024, 128);
+  context.font = '400 52px "Share Tech Mono"';
+  context.fillStyle = '#4DFF91';
+  context.textAlign = 'left';
+  context.textBaseline = 'middle';
+  context.fillText('PLNK-7 // UNIT', 30, 64);
+  context.textAlign = 'right';
+  context.fillStyle = '#2A7A48';
+  context.fillText('MDL-7734 // REV.C', 994, 64);
+}
+
+function drawFooter(context: CanvasRenderingContext2D, progressPct: number, statusText: string): void {
+  context.clearRect(0, 0, 1024, 96);
+  context.fillStyle = '#060C04';
+  context.fillRect(0, 0, 1024, 96);
+  context.font = '400 26px "Share Tech Mono"';
+  context.fillStyle = '#1A5A2A';
+  context.textBaseline = 'middle';
+  context.textAlign = 'left';
+  context.fillText('(C) 1984 PLNK SYSTEMS // ALL RIGHTS RESERVED', 20, 48);
+  for (let index = 0; index < 12; index += 1) {
+    const active = index < Math.round(progressPct * 12);
+    context.fillStyle = active ? '#4DFF91' : '#0A2010';
+    context.fillRect(420 + index * 30, 34, 22, 28);
+  }
+  context.font = '400 34px "Share Tech Mono"';
+  context.fillStyle = '#4DFF91';
+  context.textAlign = 'right';
+  context.fillText(statusText, 1004, 48);
+}
+
+function drawVU(context: CanvasRenderingContext2D, levels: number[]): void {
+  clearDisplay(context, 512, 384);
+  context.font = '400 20px "Share Tech Mono"';
+  context.fillStyle = '#2A7A48';
+  context.textBaseline = 'top';
+  context.textAlign = 'left';
+  context.fillText('VU_METER', 20, 10);
+  const segW = 28;
+  const segH = 14;
+  const segGap = 4;
+  const cols = 12;
+  const rowH = 44;
+  levels.forEach((level, row) => {
+    const y = 42 + row * rowH;
+    const activeCols = Math.round(level * cols);
+    for (let col = 0; col < cols; col += 1) {
+      const x = 20 + col * (segW + segGap);
+      const active = col < activeCols;
+      let color = active ? '#4DFF91' : '#0A2010';
+      if (active && col >= 10) color = '#FF4444';
+      else if (active && col >= 8) color = '#E8A030';
+      context.fillStyle = color;
+      context.fillRect(x, y, segW, segH);
+      if (active) {
+        context.fillStyle = 'rgba(255,255,255,0.12)';
+        context.fillRect(x, y, segW, 4);
+      }
+    }
+  });
 }
 
 function drawTextTexture(
@@ -1057,6 +1322,8 @@ function configureDisplayTexture(texture: THREE.Texture): void {
   texture.repeat.set(1, 1);
   texture.offset.set(0, 0);
   texture.flipY = true;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
 }
 
 function makeNormalMap(kind: 'plastic' | 'scratch'): THREE.CanvasTexture {
