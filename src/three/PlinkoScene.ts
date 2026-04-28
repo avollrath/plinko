@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { boardConfig } from '../config';
+import { getPegPositions, getSlotCenters } from '../game/boardLayout';
 
 type SceneResize = {
   width: number;
@@ -193,21 +194,16 @@ export class PlinkoScene {
       emissive: 0x0bbd94,
       emissiveIntensity: 0.35
     });
-    for (let row = 0; row < boardConfig.pegRows; row += 1) {
-      const count = boardConfig.pegsInFirstRow + (row % 2);
-      const rowWidth = (count - 1) * boardConfig.pegSpacingX;
-      const y = 4.55 - row * boardConfig.pegSpacingY;
-      for (let index = 0; index < count; index += 1) {
-        const peg = new THREE.Mesh(geometry, material);
-        peg.position.set(index * boardConfig.pegSpacingX - rowWidth / 2, y, 0.2);
-        this.pegGroup.add(peg);
-      }
-    }
+    getPegPositions().forEach(({ x, y }) => {
+      const peg = new THREE.Mesh(geometry, material);
+      peg.position.set(x, y, 0.2);
+      this.pegGroup.add(peg);
+    });
   }
 
   private addSlotMeshes(): void {
     const slotWidth = boardConfig.width / boardConfig.slotCount;
-    for (let index = 0; index < boardConfig.slotCount; index += 1) {
+    getSlotCenters().forEach(({ x, y }, index) => {
       const color = boardConfig.slotColors[index];
       const material = new THREE.MeshStandardMaterial({
         color,
@@ -217,9 +213,9 @@ export class PlinkoScene {
         metalness: 0.12
       });
       const slot = new THREE.Mesh(new THREE.BoxGeometry(slotWidth - 0.16, 0.55, 0.22), material);
-      slot.position.set(-boardConfig.width / 2 + slotWidth * (index + 0.5), -6.28, 0.08);
+      slot.position.set(x, y, 0.08);
       this.slotGroup.add(slot);
       this.slotMaterials.push(material);
-    }
+    });
   }
 }

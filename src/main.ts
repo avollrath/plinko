@@ -1,4 +1,5 @@
 import './styles.css';
+import { PlinkoPhysics } from './physics/PlinkoPhysics';
 import { PlinkoScene } from './three/PlinkoScene';
 
 const root = document.querySelector<HTMLDivElement>('#hud-root');
@@ -19,6 +20,7 @@ if (!canvas) {
 }
 
 const plinkoScene = new PlinkoScene(canvas);
+const physics = new PlinkoPhysics();
 
 function resize(): void {
   plinkoScene.resize({
@@ -29,6 +31,7 @@ function resize(): void {
 }
 
 function animate(): void {
+  physics.step(performance.now());
   plinkoScene.render();
   window.requestAnimationFrame(animate);
 }
