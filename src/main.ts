@@ -1,4 +1,5 @@
 import './styles.css';
+import { GameController } from './game/GameController';
 import { PlinkoPhysics } from './physics/PlinkoPhysics';
 import { PlinkoScene } from './three/PlinkoScene';
 
@@ -21,6 +22,13 @@ if (!canvas) {
 
 const plinkoScene = new PlinkoScene(canvas);
 const physics = new PlinkoPhysics();
+const game = new GameController(plinkoScene, physics);
+
+window.addEventListener('pointerdown', (event) => {
+  if (event.target === canvas) {
+    game.dropBall();
+  }
+});
 
 function resize(): void {
   plinkoScene.resize({
@@ -32,6 +40,7 @@ function resize(): void {
 
 function animate(): void {
   physics.step(performance.now());
+  game.update();
   plinkoScene.render();
   window.requestAnimationFrame(animate);
 }
