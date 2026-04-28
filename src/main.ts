@@ -173,6 +173,9 @@ const displayRimMaterial = new THREE.MeshStandardMaterial({
   metalness: 0.55
 });
 const staticLabels: Array<{ plane: TextPlane; text: string; align: CanvasTextAlign; fontSize: number }> = [];
+const NEON = '#76FFAA';
+const NEON_SOFT = '#4DFF91';
+const NEON_DIM = '#2FE06D';
 
 const bucketMaterials: THREE.MeshStandardMaterial[] = [];
 const reelObjects: THREE.Object3D[] = [];
@@ -410,17 +413,22 @@ function buildDropControls(): void {
   );
   collar.position.set(0, -0.78, 0.215);
   terminalGroup.add(collar);
-  dropButtonLabel = makeTextPlane(256, 128, 0.34, 0.095, 0.22);
-  dropButtonLabel.mesh.position.set(0, -0.78, 0.262);
+  dropButtonLabel = makeTextPlane(256, 128, 0.34, 0.095, 0.8);
+  const labelMat = dropButtonLabel.mesh.material as THREE.MeshStandardMaterial;
+  labelMat.transparent = false;
+  labelMat.depthTest = false;
+  labelMat.emissiveIntensity = 0.8;
+  dropButtonLabel.mesh.renderOrder = 10;
+  dropButtonLabel.mesh.position.set(0, -0.78, 0.292);
   terminalGroup.add(dropButtonLabel.mesh);
 }
 
 function buildLeftPanel(): void {
-  vuDisplay = makeDisplayModule(0.58, 0.44, 512, 384, 0.2);
+  vuDisplay = makeDisplayModule(0.54, 0.4, 512, 384, 0.36);
   vuDisplay.group.position.set(-1.1, 0.46, 0.206);
   terminalGroup.add(vuDisplay.group);
 
-  scoreDisplay = makeDisplayModule(0.58, 0.145, 512, 128, 0.22);
+  scoreDisplay = makeDisplayModule(0.54, 0.13, 512, 128, 0.42);
   scoreDisplay.group.position.set(-1.1, 0.08, 0.206);
   terminalGroup.add(scoreDisplay.group);
 
@@ -428,26 +436,26 @@ function buildLeftPanel(): void {
   addReel(-1.19, -0.18, reelMat);
   addReel(-1.01, -0.18, reelMat);
 
-  reelStatusDisplay = makeDisplayModule(0.58, 0.11, 512, 96, 0.2);
+  reelStatusDisplay = makeDisplayModule(0.54, 0.1, 512, 96, 0.34);
   reelStatusDisplay.group.position.set(-1.1, -0.39, 0.206);
   terminalGroup.add(reelStatusDisplay.group);
 
-  dropStatsDisplay = makeDisplayModule(0.58, 0.22, 512, 192, 0.2);
+  dropStatsDisplay = makeDisplayModule(0.54, 0.2, 512, 192, 0.34);
   dropStatsDisplay.group.position.set(-1.1, -0.66, 0.206);
   terminalGroup.add(dropStatsDisplay.group);
 }
 
 function buildRightPanel(): void {
-  landingLogDisplay = makeDisplayModule(0.68, 0.68, 512, 512, 0.18);
-  landingLogDisplay.group.position.set(1.18, 0.38, 0.206);
+  landingLogDisplay = makeDisplayModule(0.58, 0.58, 512, 512, 0.34);
+  landingLogDisplay.group.position.set(1.18, 0.4, 0.206);
   terminalGroup.add(landingLogDisplay.group);
 
-  distChartDisplay = makeDisplayModule(0.68, 0.68, 512, 512, 0.18);
-  distChartDisplay.group.position.set(1.18, -0.34, 0.206);
+  distChartDisplay = makeDisplayModule(0.58, 0.58, 512, 512, 0.34);
+  distChartDisplay.group.position.set(1.18, -0.28, 0.206);
   terminalGroup.add(distChartDisplay.group);
 
-  elapsedDisplay = makeDisplayModule(0.58, 0.11, 512, 96, 0.22);
-  elapsedDisplay.group.position.set(1.18, -0.78, 0.206);
+  elapsedDisplay = makeDisplayModule(0.54, 0.1, 512, 96, 0.42);
+  elapsedDisplay.group.position.set(1.18, -0.76, 0.206);
   terminalGroup.add(elapsedDisplay.group);
 
   console.info('Right panel module widths');
@@ -811,9 +819,12 @@ function drawScreen(): void {
     });
     screenCtx.globalAlpha = 1;
     screenCtx.fillStyle = '#4DFF91';
+    screenCtx.shadowColor = NEON;
+    screenCtx.shadowBlur = 10;
     screenCtx.beginPath();
     screenCtx.arc(activeChip.x, activeChip.y, 14, 0, Math.PI * 2);
     screenCtx.fill();
+    screenCtx.shadowBlur = 0;
     screenCtx.fillStyle = 'rgba(255,255,255,0.9)';
     screenCtx.beginPath();
     screenCtx.arc(activeChip.x, activeChip.y, 4, 0, Math.PI * 2);
@@ -826,7 +837,7 @@ function drawScreen(): void {
   screenCtx.font = '28px "Share Tech Mono", monospace';
   screenCtx.textBaseline = 'middle';
   screenCtx.textAlign = 'left';
-  screenCtx.fillText(`SCORE: ${String(score).padStart(4, '0')}`, 20, 40);
+  glowText(screenCtx, `SCORE: ${String(score).padStart(4, '0')}`, 20, 40, { color: NEON });
 
   screenCtx.strokeStyle = '#1A4A28';
   screenCtx.lineWidth = 1;
@@ -904,7 +915,7 @@ function makeTextPlane(canvasWidth: number, canvasHeight: number, worldWidth: nu
   const material = new THREE.MeshStandardMaterial({
     map: texture,
     emissiveMap: texture,
-    emissive: 0x30ff70,
+    emissive: 0x76ffaa,
     emissiveIntensity,
     transparent: true,
     roughness: 0.24,
@@ -927,12 +938,12 @@ function makeDisplayModule(planeWidth: number, planeHeight: number, canvasWidth:
   planeMaterial.roughnessMap = null;
   planeMaterial.aoMap = null;
 
-  const housing = new THREE.Mesh(makeRoundedBox(planeWidth + 0.04, planeHeight + 0.04, 0.022, 0.005, 2), displayHousingMaterial);
+  const housing = new THREE.Mesh(makeRoundedBox(planeWidth + 0.02, planeHeight + 0.02, 0.014, 0.004, 2), displayHousingMaterial);
   housing.position.z = -0.008;
   housing.castShadow = true;
   group.add(housing);
 
-  const rim = new THREE.Mesh(makeRoundedBox(planeWidth + 0.028, planeHeight + 0.028, 0.006, 0.004, 2), displayRimMaterial);
+  const rim = new THREE.Mesh(makeRoundedBox(planeWidth + 0.014, planeHeight + 0.014, 0.003, 0.003, 2), displayRimMaterial);
   rim.position.z = 0.001;
   group.add(rim);
 
@@ -988,15 +999,33 @@ function clearDisplay(context: CanvasRenderingContext2D, width: number, height: 
   context.fillRect(0, 0, width, height);
 }
 
+function glowText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  options: { color?: string; blur?: number; alpha?: number } = {}
+): void {
+  context.save();
+  context.shadowColor = options.color || NEON_SOFT;
+  context.shadowBlur = options.blur ?? 10;
+  context.globalAlpha = options.alpha ?? 0.55;
+  context.fillText(text, x, y);
+  context.globalAlpha = 1;
+  context.shadowBlur = 0;
+  context.fillText(text, x, y);
+  context.restore();
+}
+
 function drawDisplay(plane: TextPlane, lines: Array<{ text: string; size: number; y: number; align?: CanvasTextAlign; color?: string }>): void {
   clearDisplay(plane.context, plane.canvas.width, plane.canvas.height);
   lines.forEach((line) => {
     plane.context.font = `400 ${line.size}px "Share Tech Mono"`;
-    plane.context.fillStyle = line.color || '#4DFF91';
+    plane.context.fillStyle = line.color || NEON;
     plane.context.textBaseline = 'middle';
     plane.context.textAlign = line.align || 'left';
     const x = line.align === 'center' ? plane.canvas.width / 2 : line.align === 'right' ? plane.canvas.width - 12 : 12;
-    plane.context.fillText(line.text, x, line.y * plane.canvas.height);
+    glowText(plane.context, line.text, x, line.y * plane.canvas.height, { color: line.color || NEON });
   });
   plane.texture.needsUpdate = true;
 }
@@ -1007,15 +1036,15 @@ function drawScore(context: CanvasRenderingContext2D, nextScore: number): void {
   context.fillStyle = '#2A7A48';
   context.textAlign = 'left';
   context.textBaseline = 'top';
-  context.fillText('SCORE_CTR', 20, 12);
+  glowText(context, 'SCORE_CTR', 20, 12, { color: NEON_DIM, blur: 7 });
   context.font = '400 72px "Share Tech Mono"';
   context.fillStyle = '#5DFF9A';
   context.textAlign = 'center';
   context.textBaseline = 'middle';
   const value = String(nextScore).padStart(4, '0');
-  context.fillText(value, 256, 82);
+  glowText(context, value, 256, 82, { color: NEON, blur: 14, alpha: 0.7 });
   context.globalAlpha = 0.3;
-  context.fillText(value, 256, 82);
+  glowText(context, value, 256, 82, { color: NEON, blur: 18, alpha: 0.35 });
   context.globalAlpha = 1;
 }
 
@@ -1025,12 +1054,12 @@ function drawReelStatus(context: CanvasRenderingContext2D, active: boolean): voi
   context.fillStyle = '#2A7A48';
   context.textAlign = 'left';
   context.textBaseline = 'top';
-  context.fillText('REEL_STATUS', 20, 8);
+  glowText(context, 'REEL_STATUS', 20, 8, { color: NEON_DIM, blur: 7 });
   context.font = '400 40px "Share Tech Mono"';
   context.fillStyle = active ? '#5DFF9A' : '#1A6A38';
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  context.fillText(active ? 'ACTIVE' : 'STANDBY', 256, 62);
+  glowText(context, active ? 'ACTIVE' : 'STANDBY', 256, 62, { color: active ? NEON : NEON_DIM, blur: 12 });
 }
 
 function drawDropStats(context: CanvasRenderingContext2D, left: number, center: number, right: number): void {
@@ -1039,7 +1068,7 @@ function drawDropStats(context: CanvasRenderingContext2D, left: number, center: 
   context.fillStyle = '#2A7A48';
   context.textBaseline = 'top';
   context.textAlign = 'left';
-  context.fillText('DROP_STATS', 20, 10);
+  glowText(context, 'DROP_STATS', 20, 10, { color: NEON_DIM, blur: 7 });
   const rows: Array<[string, number]> = [
     ['L', left],
     ['C', center],
@@ -1050,10 +1079,10 @@ function drawDropStats(context: CanvasRenderingContext2D, left: number, center: 
     context.font = '400 30px "Share Tech Mono"';
     context.fillStyle = '#3A8A58';
     context.textAlign = 'left';
-    context.fillText(label, 30, y);
+    glowText(context, label, 30, y, { color: NEON_DIM, blur: 7 });
     context.fillStyle = '#5DFF9A';
     context.textAlign = 'right';
-    context.fillText(String(value).padStart(2, '0'), 490, y);
+    glowText(context, String(value).padStart(2, '0'), 490, y, { color: NEON, blur: 10 });
     context.strokeStyle = '#1A4A28';
     context.lineWidth = 1;
     context.beginPath();
@@ -1069,7 +1098,7 @@ function drawLandingLogCanvas(context: CanvasRenderingContext2D, entries: Array<
   context.fillStyle = '#2A7A48';
   context.textBaseline = 'top';
   context.textAlign = 'left';
-  context.fillText('LANDING_LOG', 20, 14);
+  glowText(context, 'LANDING_LOG', 20, 14, { color: NEON_DIM, blur: 7 });
   context.strokeStyle = '#1A4A28';
   context.lineWidth = 1;
   context.beginPath();
@@ -1081,7 +1110,7 @@ function drawLandingLogCanvas(context: CanvasRenderingContext2D, entries: Array<
     context.font = '400 24px "Share Tech Mono"';
     context.fillStyle = '#1A5A30';
     context.textAlign = 'center';
-    context.fillText('-- AWAITING DROP --', 256, 280);
+    glowText(context, '-- AWAITING DROP --', 256, 280, { color: NEON_DIM, blur: 9 });
     return;
   }
 
@@ -1090,10 +1119,10 @@ function drawLandingLogCanvas(context: CanvasRenderingContext2D, entries: Array<
     context.font = '400 26px "Share Tech Mono"';
     context.fillStyle = '#2A7A48';
     context.textAlign = 'left';
-    context.fillText(entry.time, 20, y);
+    glowText(context, entry.time, 20, y, { color: NEON_DIM, blur: 7 });
     context.fillStyle = '#5DFF9A';
     context.textAlign = 'right';
-    context.fillText(`${entry.slot} / ${entry.pts}`, 492, y);
+    glowText(context, `${entry.slot} / ${entry.pts}`, 492, y, { color: NEON, blur: 9 });
     context.strokeStyle = '#0A2A14';
     context.lineWidth = 1;
     context.beginPath();
@@ -1109,7 +1138,7 @@ function drawDistChart(context: CanvasRenderingContext2D, counts: number[]): voi
   context.fillStyle = '#2A7A48';
   context.textBaseline = 'top';
   context.textAlign = 'left';
-  context.fillText('DIST_CHART', 20, 14);
+  glowText(context, 'DIST_CHART', 20, 14, { color: NEON_DIM, blur: 7 });
   const labels = ['L3', 'L2', 'L1', 'CTR', 'R1', 'R2', 'R3'];
   const total = Math.max(1, counts.reduce((sum, value) => sum + value, 0));
   const segW = 18;
@@ -1121,7 +1150,7 @@ function drawDistChart(context: CanvasRenderingContext2D, counts: number[]): voi
     context.font = '400 24px "Share Tech Mono"';
     context.fillStyle = '#3A8A58';
     context.textAlign = 'left';
-    context.fillText(label, 20, y);
+    glowText(context, label, 20, y, { color: NEON_DIM, blur: 7 });
     const activeSeg = Math.round((counts[index] / total) * 14);
     for (let segment = 0; segment < 14; segment += 1) {
       const sx = 120 + segment * (segW + segGap);
@@ -1136,7 +1165,7 @@ function drawDistChart(context: CanvasRenderingContext2D, counts: number[]): voi
     context.font = '400 20px "Share Tech Mono"';
     context.fillStyle = '#2A7A48';
     context.textAlign = 'right';
-    context.fillText(String(counts[index]), 500, y);
+    glowText(context, String(counts[index]), 500, y, { color: NEON_DIM, blur: 7 });
   });
 }
 
@@ -1146,14 +1175,14 @@ function drawElapsed(context: CanvasRenderingContext2D, seconds: number): void {
   context.fillStyle = '#2A7A48';
   context.textBaseline = 'top';
   context.textAlign = 'left';
-  context.fillText('ELAPSED_TIME', 20, 8);
+  glowText(context, 'ELAPSED_TIME', 20, 8, { color: NEON_DIM, blur: 7 });
   const minutes = String(Math.floor(seconds / 60)).padStart(2, '0');
   const remaining = String(seconds % 60).padStart(2, '0');
   context.font = '400 48px "Share Tech Mono"';
   context.fillStyle = '#5DFF9A';
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  context.fillText(`${minutes}:${remaining}`, 256, 65);
+  glowText(context, `${minutes}:${remaining}`, 256, 65, { color: NEON, blur: 12 });
 }
 
 function drawDropBtn(context: CanvasRenderingContext2D): void {
@@ -1169,7 +1198,7 @@ function drawDropBtn(context: CanvasRenderingContext2D): void {
   context.fillStyle = '#5DFF9A';
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  context.fillText('DROP', 128, 68);
+  glowText(context, 'DROP', 128, 68, { color: NEON, blur: 16, alpha: 0.8 });
 }
 
 function drawBucketRow(context: CanvasRenderingContext2D, litIndex: number): void {
@@ -1192,10 +1221,10 @@ function drawBucketRow(context: CanvasRenderingContext2D, litIndex: number): voi
     context.fillStyle = active ? '#FFFFFF' : '#3A8A58';
     context.textAlign = 'center';
     context.textBaseline = 'middle';
-    context.fillText(name, cx, 38);
+    glowText(context, name, cx, 38, { color: active ? '#FFFFFF' : NEON_DIM, blur: active ? 12 : 7 });
     context.font = '400 30px "Share Tech Mono"';
     context.fillStyle = active ? '#5DFF9A' : '#2A6A40';
-    context.fillText(points, cx, 90);
+    glowText(context, points, cx, 90, { color: active ? NEON : NEON_DIM, blur: active ? 12 : 7 });
   });
 }
 
@@ -1207,10 +1236,10 @@ function drawHeader(context: CanvasRenderingContext2D): void {
   context.fillStyle = '#4DFF91';
   context.textAlign = 'left';
   context.textBaseline = 'middle';
-  context.fillText('PLNK-7 // UNIT', 30, 64);
+  glowText(context, 'PLNK-7 // UNIT', 30, 64, { color: NEON, blur: 14 });
   context.textAlign = 'right';
   context.fillStyle = '#2A7A48';
-  context.fillText('MDL-7734 // REV.C', 994, 64);
+  glowText(context, 'MDL-7734 // REV.C', 994, 64, { color: NEON, blur: 14 });
 }
 
 function drawFooter(context: CanvasRenderingContext2D, progressPct: number, statusText: string): void {
@@ -1221,7 +1250,7 @@ function drawFooter(context: CanvasRenderingContext2D, progressPct: number, stat
   context.fillStyle = '#1A5A2A';
   context.textBaseline = 'middle';
   context.textAlign = 'left';
-  context.fillText('(C) 1984 PLNK SYSTEMS // ALL RIGHTS RESERVED', 20, 48);
+  glowText(context, '(C) 1984 PLNK SYSTEMS // ALL RIGHTS RESERVED', 20, 48, { color: NEON_DIM, blur: 8 });
   for (let index = 0; index < 12; index += 1) {
     const active = index < Math.round(progressPct * 12);
     context.fillStyle = active ? '#4DFF91' : '#0A2010';
@@ -1230,7 +1259,7 @@ function drawFooter(context: CanvasRenderingContext2D, progressPct: number, stat
   context.font = '400 34px "Share Tech Mono"';
   context.fillStyle = '#4DFF91';
   context.textAlign = 'right';
-  context.fillText(statusText, 1004, 48);
+  glowText(context, statusText, 1004, 48, { color: NEON, blur: 12 });
 }
 
 function drawVU(context: CanvasRenderingContext2D, levels: number[]): void {
@@ -1239,7 +1268,7 @@ function drawVU(context: CanvasRenderingContext2D, levels: number[]): void {
   context.fillStyle = '#2A7A48';
   context.textBaseline = 'top';
   context.textAlign = 'left';
-  context.fillText('VU_METER', 20, 10);
+  glowText(context, 'VU_METER', 20, 10, { color: NEON_DIM, blur: 7 });
   const segW = 28;
   const segH = 14;
   const segGap = 4;
