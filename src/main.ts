@@ -51,9 +51,9 @@ renderer.toneMappingExposure = 0.82;
 renderer.outputEncoding = THREE.sRGBEncoding;
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x080a06, 0.06);
+scene.fog = new THREE.FogExp2(0x080a06, 0.035);
 const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
-camera.position.set(0, 1.5, 4.5);
+camera.position.set(0, 1.18, 3.35);
 camera.lookAt(0, 0, 0);
 
 const raycaster = new THREE.Raycaster();
@@ -192,7 +192,6 @@ let vuLevels = [0.05, 0.08, 0.11, 0.14, 0.17, 0.2];
 let litBucketIndex = -1;
 
 buildLights();
-buildEnvironment();
 buildTerminal();
 buildPlinkoPegs();
 inspectSceneGeometry();
@@ -232,26 +231,20 @@ window.addEventListener('keydown', (event) => {
 resize();
 
 function buildLights(): void {
-  keyLight = new THREE.DirectionalLight(0xffe4a0, 2.2);
-  keyLight.position.set(-3, 5, 4);
+  keyLight = new THREE.DirectionalLight(0xffe4a0, 1.65);
+  keyLight.position.set(-2.4, 3.8, 3.2);
   keyLight.castShadow = true;
-  keyLight.shadow.mapSize.set(4096, 4096);
+  keyLight.shadow.mapSize.set(2048, 2048);
   keyLight.shadow.bias = -0.0002;
   keyLight.shadow.normalBias = 0.02;
-  keyLight.shadow.camera.near = 1;
-  keyLight.shadow.camera.far = 22;
-  keyLight.shadow.camera.left = -5;
-  keyLight.shadow.camera.right = 5;
-  keyLight.shadow.camera.top = 5;
-  keyLight.shadow.camera.bottom = -5;
   scene.add(keyLight);
 
-  const bounce = new THREE.DirectionalLight(0x405870, 0.55);
-  bounce.position.set(0.5, -3, 2);
-  scene.add(bounce);
+  const fill = new THREE.DirectionalLight(0x7f95b2, 0.72);
+  fill.position.set(2.7, 1.25, 2.4);
+  scene.add(fill);
 
-  const rim = new THREE.DirectionalLight(0x708060, 0.3);
-  rim.position.set(3, 2, -4);
+  const rim = new THREE.DirectionalLight(0xb7c88f, 0.55);
+  rim.position.set(0.4, 3.2, -3.4);
   scene.add(rim);
 
   const screenRect = new THREE.RectAreaLight(0x18e84a, 0.55, 0.65, 1.15);
@@ -260,23 +253,6 @@ function buildLights(): void {
   terminalGroup.add(screenRect);
 
   scene.add(new THREE.AmbientLight(0x0c140a, 0.6));
-}
-
-function buildEnvironment(): void {
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(10, 7, 1, 1),
-    new THREE.MeshStandardMaterial({
-      color: 0x0c0e0a,
-      roughness: 0.96,
-      metalness: 0,
-      roughnessMap: makeRoughnessMap('ground')
-    })
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -1.25;
-  ground.name = 'approved-ground-plane';
-  ground.receiveShadow = true;
-  scene.add(ground);
 }
 
 function buildTerminal(): void {
@@ -379,10 +355,10 @@ function buildCenterPanel(): void {
       metalness: 0
     })
   );
-  screen.position.set(0.08, 0.2, 0.185);
+  screen.position.set(0, 0.2, 0.185);
   terminalGroup.add(screen);
 
-  addScreenBezel(0.08, 0.2, 0.201);
+  addScreenBezel(0, 0.2, 0.201);
   buildBuckets();
   buildDropControls();
 }
@@ -397,45 +373,45 @@ function buildBuckets(): void {
       emissiveIntensity: 0
     });
     const mesh = new THREE.Mesh(makeRoundedBox(0.095, 0.06, 0.018, 0.008, 2), mat);
-    mesh.position.set(-0.22 + index * 0.1, -0.52, 0.205);
+    mesh.position.set(-0.3 + index * 0.1, -0.52, 0.205);
     bucketMaterials.push(mat);
     terminalGroup.add(mesh);
   });
   bucketRowDisplay = makeTextPlane(512, 128, 0.72, 0.1, 0.18);
-  bucketRowDisplay.mesh.position.set(0.08, -0.52, 0.219);
+  bucketRowDisplay.mesh.position.set(0, -0.52, 0.219);
   terminalGroup.add(bucketRowDisplay.mesh);
 }
 
 function buildDropControls(): void {
   const wellMat = new THREE.MeshStandardMaterial({ color: 0x161810, roughness: 0.86, metalness: 0.08 });
   const knobMat = new THREE.MeshStandardMaterial({ color: 0x1a1c10, roughness: 0.6, metalness: 0.3 });
-  addKnob(-0.34, -0.78, 'FREQ', wellMat, knobMat, -0.55);
-  addKnob(0.5, -0.78, 'BIAS', wellMat, knobMat, 0.75);
+  addKnob(-0.42, -0.78, 'FREQ', wellMat, knobMat, -0.55);
+  addKnob(0.42, -0.78, 'BIAS', wellMat, knobMat, 0.75);
 
   const dropMat = new THREE.MeshStandardMaterial({
-    color: 0x2c3020,
-    roughness: 0.78,
-    metalness: 0.06,
+    color: 0x30351f,
+    roughness: 0.72,
+    metalness: 0.08,
     roughnessMap: makeButtonRoughnessMap()
   });
-  dropButtonMesh = makeDomeButton(dropMat);
-  dropButtonMesh.position.set(0.08, -0.78, 0.23);
+  dropButtonMesh = new THREE.Mesh(makeRoundedBox(0.42, 0.17, 0.055, 0.025, 4), dropMat);
+  dropButtonMesh.position.set(0, -0.78, 0.23);
   dropButtonBaseZ = dropButtonMesh.position.z;
   dropButtonMesh.castShadow = true;
   interactive.push(dropButtonMesh);
   terminalGroup.add(dropButtonMesh);
   const collar = new THREE.Mesh(
-    new THREE.TorusGeometry(0.185, 0.008, 8, 48),
+    makeRoundedBox(0.48, 0.22, 0.018, 0.035, 4),
     new THREE.MeshStandardMaterial({
-      color: 0x1a1e10,
-      roughness: 0.4,
-      metalness: 0.7
+      color: 0x15190e,
+      roughness: 0.42,
+      metalness: 0.68
     })
   );
-  collar.position.set(0.08, -0.78, 0.222);
+  collar.position.set(0, -0.78, 0.215);
   terminalGroup.add(collar);
-  dropButtonLabel = makeTextPlane(256, 256, 0.18, 0.18, 0.22);
-  dropButtonLabel.mesh.position.set(0.08, -0.78, 0.252);
+  dropButtonLabel = makeTextPlane(256, 128, 0.34, 0.095, 0.22);
+  dropButtonLabel.mesh.position.set(0, -0.78, 0.262);
   terminalGroup.add(dropButtonLabel.mesh);
 }
 
@@ -579,17 +555,6 @@ function makeFrontCylinder(radius: number, depth: number, material: THREE.Materi
   return mesh;
 }
 
-function makeDomeButton(material: THREE.Material): THREE.Mesh {
-  const points: THREE.Vector2[] = [];
-  for (let i = 0; i <= 12; i += 1) {
-    const t = i / 12;
-    points.push(new THREE.Vector2(0.18 * Math.cos(t * Math.PI * 0.45), t * 0.04 - 0.005));
-  }
-  const mesh = new THREE.Mesh(prepareGeometry(new THREE.LatheGeometry(points, 48)), material);
-  mesh.rotation.x = Math.PI / 2;
-  return mesh;
-}
-
 function makeCountersunkScrewGeometry(): THREE.BufferGeometry {
   const points = [
     new THREE.Vector2(0.004, -0.004),
@@ -660,7 +625,7 @@ function inspectSceneGeometry(): void {
   const removable: THREE.Object3D[] = [];
   scene.updateMatrixWorld(true);
   scene.traverse((object) => {
-    if (!(object instanceof THREE.Mesh) || object.name === 'approved-ground-plane') return;
+    if (!(object instanceof THREE.Mesh)) return;
     const bounds = new THREE.Box3().setFromObject(object);
     const tooLarge =
       Math.abs(bounds.min.x) > 2 ||
@@ -717,8 +682,8 @@ function animate(now: number): void {
   reelObjects[0].rotation.z = reelAngle;
   drawFooter(footerDisplay.context, activeChip ? progressPhase / 10 : 0, activeChip ? 'ACTIVE' : 'STANDBY');
   footerDisplay.texture.needsUpdate = true;
-  keyLight.position.x = -3 + currentRotY * -1.5;
-  keyLight.position.y = 5 + currentRotX * -1.0;
+  keyLight.position.x = -2.4 + currentRotY * -1.5;
+  keyLight.position.y = 3.8 + currentRotX * -1.0;
 
   const elapsed = Math.floor((performance.now() - startTime) / 1000);
   if (fontsReady && elapsed !== lastSecond) {
@@ -1192,19 +1157,19 @@ function drawElapsed(context: CanvasRenderingContext2D, seconds: number): void {
 }
 
 function drawDropBtn(context: CanvasRenderingContext2D): void {
-  context.clearRect(0, 0, 256, 256);
+  context.clearRect(0, 0, 256, 128);
   context.fillStyle = '#0A100A';
-  context.fillRect(0, 0, 256, 256);
+  context.fillRect(0, 0, 256, 128);
   context.strokeStyle = '#2A5A38';
-  context.lineWidth = 3;
-  context.beginPath();
-  context.arc(128, 128, 110, 0, Math.PI * 2);
-  context.stroke();
-  context.font = '400 52px "Share Tech Mono"';
+  context.lineWidth = 4;
+  context.strokeRect(12, 12, 232, 104);
+  context.fillStyle = 'rgba(255,255,255,0.08)';
+  context.fillRect(18, 18, 220, 12);
+  context.font = '400 46px "Share Tech Mono"';
   context.fillStyle = '#5DFF9A';
   context.textAlign = 'center';
   context.textBaseline = 'middle';
-  context.fillText('DROP', 128, 128);
+  context.fillText('DROP', 128, 68);
 }
 
 function drawBucketRow(context: CanvasRenderingContext2D, litIndex: number): void {
