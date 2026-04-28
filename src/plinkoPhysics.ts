@@ -149,6 +149,13 @@ export class PlinkoPhysics {
     ctx.fillStyle = '#8A9A7A';
     ctx.fillRect(0, 0, 400, 480);
 
+    ctx.fillStyle = 'rgba(58, 42, 26, 0.055)';
+    for (let i = 0; i < 90; i += 1) {
+      const x = (i * 47) % 400;
+      const y = (i * 83) % 480;
+      ctx.fillRect(x, y, 1, 1);
+    }
+
     ctx.strokeStyle = 'rgba(58, 42, 26, 0.18)';
     ctx.lineWidth = 1;
     for (let y = 24; y < 480; y += 24) {
