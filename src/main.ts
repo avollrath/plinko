@@ -16,6 +16,14 @@ type TextPlane = {
   mesh: THREE.Mesh;
 };
 
+type DisplayLine = {
+  text: string;
+  size: number;
+  color?: string;
+  y: number;
+  align?: CanvasTextAlign;
+};
+
 type Chip = {
   x: number;
   y: number;
@@ -42,7 +50,7 @@ renderer.setClearColor(0x070808, 1);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.95;
+renderer.toneMappingExposure = 0.88;
 renderer.outputEncoding = THREE.sRGBEncoding;
 
 const scene = new THREE.Scene();
@@ -55,13 +63,16 @@ const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2(10, 10);
 const mouse01 = new THREE.Vector2(0.5, 0.5);
 const terminalGroup = new THREE.Group();
+const detailGroup = new THREE.Group();
 scene.add(terminalGroup);
+terminalGroup.add(detailGroup);
 RectAreaLightUniformsLib.init();
 
 const interactive: THREE.Object3D[] = [];
 let dropButtonMesh: THREE.Mesh;
 let dropButtonBaseZ = 0;
 let dropPressUntil = 0;
+let isPressingDrop = false;
 let activeChip: Chip | undefined;
 let score = 0;
 let startTime = performance.now();
@@ -76,13 +87,20 @@ let currentRotY = 0;
 const landings: Array<{ stamp: string; id: BucketId; points: number }> = [];
 const distribution = new Map<BucketId, number>(buckets.map((bucket) => [bucket.id, 0]));
 const stats = { L: 0, C: 0, R: 0 };
+let fontsReady = false;
 
 const screenCanvas = document.createElement('canvas');
-screenCanvas.width = 320;
-screenCanvas.height = 560;
+screenCanvas.width = 512;
+screenCanvas.height = 1024;
 const screenCtx = mustContext(screenCanvas);
 const screenTexture = new THREE.CanvasTexture(screenCanvas);
 screenTexture.encoding = THREE.sRGBEncoding;
+configureDisplayTexture(screenTexture);
+
+const SW = 512;
+const SH = 1024;
+const PEG_ROWS = 8;
+const PEG_COLS = 7;
 
 const sharedPlasticNormalMap = makeNormalMap('plastic');
 const sharedScratchNormalMap = makeNormalMap('scratch');
@@ -91,18 +109,18 @@ const sharedDirtMap = makeDirtMap();
 const sharedAoMap = makePanelAoMap();
 
 const plasticMaterial = new THREE.MeshStandardMaterial({
-  color: 0x2a2e1c,
+  color: 0x31351f,
   roughness: 0.86,
   metalness: 0.04,
   normalMap: sharedPlasticNormalMap,
   roughnessMap: sharedRoughnessMap,
   aoMap: sharedDirtMap,
   aoMapIntensity: 1,
-  normalScale: new THREE.Vector2(0.5, 0.5)
+  normalScale: new THREE.Vector2(0.22, 0.22)
 });
 
 const faceMaterial = plasticMaterial.clone();
-faceMaterial.color = new THREE.Color(0x323820);
+faceMaterial.color = new THREE.Color(0x2e3222);
 faceMaterial.aoMap = sharedDirtMap;
 faceMaterial.aoMapIntensity = 0.85;
 
@@ -111,7 +129,7 @@ const insetMaterial = new THREE.MeshStandardMaterial({
   roughness: 0.92,
   metalness: 0.02,
   normalMap: sharedPlasticNormalMap,
-  normalScale: new THREE.Vector2(0.35, 0.35),
+  normalScale: new THREE.Vector2(0.18, 0.18),
   aoMap: sharedAoMap,
   aoMapIntensity: 0.6
 });
@@ -154,23 +172,27 @@ const distRows = new Map<BucketId, THREE.Mesh[]>();
 const progressBlocks: THREE.Mesh[] = [];
 const reelObjects: THREE.Object3D[] = [];
 
-const scoreDisplay = makeTextPlane(512, 128, 0.55, 0.1);
-const reelStatusDisplay = makeTextPlane(512, 96, 0.55, 0.06);
-const elapsedDisplay = makeTextPlane(512, 96, 0.55, 0.08);
-const landingLogDisplay = makeTextPlane(512, 512, 0.6, 0.55);
+const staticLabels: Array<{ plane: TextPlane; text: string; align: CanvasTextAlign; fontSize: number }> = [];
+const scoreDisplay = makeTextPlane(256, 64, 0.55, 0.1);
+const reelStatusDisplay = makeTextPlane(256, 64, 0.55, 0.06);
+const elapsedDisplay = makeTextPlane(256, 64, 0.55, 0.08);
+const landingLogDisplay = makeTextPlane(256, 256, 0.6, 0.55);
 const statDisplays = {
-  L: makeTextPlane(256, 64, 0.5, 0.055),
-  C: makeTextPlane(256, 64, 0.5, 0.055),
-  R: makeTextPlane(256, 64, 0.5, 0.055)
+  L: makeTextPlane(256, 128, 0.5, 0.055),
+  C: makeTextPlane(256, 128, 0.5, 0.055),
+  R: makeTextPlane(256, 128, 0.5, 0.055)
 };
-const footerStatus = makeTextPlane(360, 80, 0.48, 0.07);
+const footerStatus = makeTextPlane(256, 64, 0.48, 0.07);
 
 buildLights();
 buildEnvironment();
 buildTerminal();
 buildPlinkoPegs();
-drawScreen();
-updateAllReadouts(true);
+inspectSceneGeometry();
+document.fonts.ready.then(() => {
+  fontsReady = true;
+  rebuildAllTextures();
+});
 
 window.addEventListener('resize', resize);
 window.addEventListener('mousemove', (event) => {
@@ -184,6 +206,14 @@ window.addEventListener('click', () => {
   const hit = raycaster.intersectObjects(interactive, false)[0];
   if (hit?.object === dropButtonMesh) dropChip();
 });
+window.addEventListener('mousedown', () => {
+  raycaster.setFromCamera(pointer, camera);
+  const hit = raycaster.intersectObjects(interactive, false)[0];
+  isPressingDrop = hit?.object === dropButtonMesh;
+});
+window.addEventListener('mouseup', () => {
+  isPressingDrop = false;
+});
 window.addEventListener('keydown', (event) => {
   if (event.code === 'Space') {
     event.preventDefault();
@@ -195,7 +225,7 @@ resize();
 requestAnimationFrame(animate);
 
 function buildLights(): void {
-  const key = new THREE.DirectionalLight(0xfff0c8, 1.8);
+  const key = new THREE.DirectionalLight(0xfff0c8, 1.4);
   key.position.set(-2.5, 4, 3.5);
   key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048);
@@ -208,7 +238,7 @@ function buildLights(): void {
   key.shadow.camera.bottom = -4;
   scene.add(key);
 
-  const fill = new THREE.DirectionalLight(0x3a5060, 0.5);
+  const fill = new THREE.DirectionalLight(0x3a5060, 0.65);
   fill.position.set(3.5, -1.5, 1);
   scene.add(fill);
 
@@ -224,6 +254,11 @@ function buildLights(): void {
   screenGlow.position.set(0, 0.08, 0.58);
   screenGlow.lookAt(0, 0.08, 0);
   terminalGroup.add(screenGlow);
+
+  const bounceFill = new THREE.RectAreaLight(0xc8e8c0, 0.15, 3.5, 2.5);
+  bounceFill.position.set(0, 0, 3.5);
+  bounceFill.lookAt(0, 0, 0);
+  scene.add(bounceFill);
 
   scene.add(new THREE.AmbientLight(0x0d1208, 0.5));
 }
@@ -242,6 +277,7 @@ function buildEnvironment(): void {
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -1.25;
+  ground.name = 'approved-ground-plane';
   ground.receiveShadow = true;
   scene.add(ground);
 }
@@ -258,7 +294,6 @@ function buildTerminal(): void {
   facePlate.receiveShadow = true;
   terminalGroup.add(facePlate);
 
-  addChamferStrips();
   addPanel(0.72, 1.7, -1.1, 0);
   addPanel(1.5, 1.9, 0.08, 0.05);
   addPanel(0.72, 1.7, 1.22, 0);
@@ -269,38 +304,28 @@ function buildTerminal(): void {
   buildRightPanel();
 }
 
-function addChamferStrips(): void {
-  const stripMaterial = new THREE.MeshStandardMaterial({ color: 0x1a1c10, roughness: 0.76, metalness: 0.1 });
-  const strips = [
-    { size: [3.15, 0.045, 0.035], pos: [0, 1.115, 0.165], rot: 0.35 },
-    { size: [3.15, 0.045, 0.035], pos: [0, -1.115, 0.165], rot: -0.35 },
-    { size: [0.045, 2.14, 0.035], pos: [-1.615, 0, 0.165], rot: -0.35 },
-    { size: [0.045, 2.14, 0.035], pos: [1.615, 0, 0.165], rot: 0.35 }
-  ];
-  strips.forEach(({ size, pos, rot }) => {
-    const mesh = new THREE.Mesh(makeRoundedBox(size[0], size[1], size[2], 0.008, 2), stripMaterial);
-    mesh.position.set(pos[0], pos[1], pos[2]);
-    mesh.rotation.z = rot;
-    mesh.castShadow = true;
-    terminalGroup.add(mesh);
-  });
-}
-
 function addPanel(width: number, height: number, x: number, y: number): void {
   const panel = new THREE.Mesh(makeRoundedBox(width, height, 0.015, 0.018, 3), insetMaterial);
-  panel.position.set(x, y, 0.155);
+  panel.position.set(x, y, 0.146);
   panel.receiveShadow = true;
   terminalGroup.add(panel);
 
-  const t = 0.012;
+  const lipMaterial = new THREE.MeshStandardMaterial({
+    color: 0x1a1e10,
+    roughness: 0.62,
+    metalness: 0.3,
+    normalMap: sharedScratchNormalMap,
+    normalScale: new THREE.Vector2(0.35, 0.35)
+  });
+  const t = 0.008;
   [
     [width + t * 2, t, 0, height / 2 + t / 2],
     [width + t * 2, t, 0, -height / 2 - t / 2],
     [t, height, -width / 2 - t / 2, 0],
     [t, height, width / 2 + t / 2, 0]
   ].forEach(([w, h, ox, oy]) => {
-    const rim = new THREE.Mesh(makeRoundedBox(w, h, 0.018, 0.006, 2), rimMaterial);
-    rim.position.set(x + ox, y + oy, 0.168);
+    const rim = new THREE.Mesh(makeRoundedBox(w, h, 0.018, 0.004, 2), lipMaterial);
+    rim.position.set(x + ox, y + oy, 0.162);
     terminalGroup.add(rim);
   });
 
@@ -344,14 +369,14 @@ function buildHeaderFooter(): void {
     const lamp = makeFrontCylinder(0.018, 0.012, mat);
     lamp.position.set(-0.04 + index * 0.04, 0.98, 0.222);
     lamp.name = index === 1 ? 'amberLight' : '';
-    terminalGroup.add(lamp);
+    detailGroup.add(lamp);
   });
 
   for (let i = 0; i < 10; i += 1) {
     const block = new THREE.Mesh(makeRoundedBox(0.045, 0.025, 0.009, 0.004, 1), inactiveSegment.clone());
     block.position.set(-0.24 + i * 0.054, -0.98, 0.218);
     progressBlocks.push(block);
-    terminalGroup.add(block);
+    detailGroup.add(block);
   }
 }
 
@@ -370,7 +395,7 @@ function buildCenterPanel(): void {
   screen.position.set(0.08, 0.2, 0.185);
   terminalGroup.add(screen);
 
-  addBezel(0.08, 0.2, 0.78, 1.36, 0.201);
+  addScreenBezel(0.08, 0.2, 0.201);
   buildBuckets();
   buildDropControls();
 }
@@ -390,7 +415,7 @@ function buildBuckets(): void {
     mesh.position.set(-0.22 + index * 0.1, -0.52, 0.205);
     bucketMaterials.push(mat);
     terminalGroup.add(mesh);
-    addLabelPlane(`${bucket.id}\n${bucket.points}`, 0.09, 0.055, mesh.position.x, -0.52, 0.216, 'center', 42);
+    addLabelPlane(`${bucket.id}\n${bucket.points}`, 0.09, 0.055, mesh.position.x, -0.52, 0.216, 'center', 22, 64, 64);
   });
 }
 
@@ -414,7 +439,19 @@ function buildDropControls(): void {
   dropButtonMesh.castShadow = true;
   interactive.push(dropButtonMesh);
   terminalGroup.add(dropButtonMesh);
-  addLabelPlane('DROP', 0.22, 0.07, 0.08, -0.78, 0.252, 'center');
+  const collar = new THREE.Mesh(
+    new THREE.TorusGeometry(0.185, 0.008, 8, 48),
+    new THREE.MeshStandardMaterial({
+      color: 0x1a1e10,
+      roughness: 0.4,
+      metalness: 0.7,
+      normalMap: sharedScratchNormalMap,
+      normalScale: new THREE.Vector2(0.35, 0.35)
+    })
+  );
+  collar.position.set(0.08, -0.78, 0.222);
+  terminalGroup.add(collar);
+  addLabelPlane('DROP', 0.22, 0.07, 0.08, -0.78, 0.252, 'center', 36, 256, 64);
 }
 
 function buildLeftPanel(): void {
@@ -425,7 +462,7 @@ function buildLeftPanel(): void {
       const seg = new THREE.Mesh(makeRoundedBox(0.03, 0.014, 0.008, 0.002, 1), inactiveSegment.clone());
       seg.position.set(-1.265 + col * 0.03, 0.58 - row * 0.035, 0.202);
       rowMeshes.push(seg);
-      terminalGroup.add(seg);
+      detailGroup.add(seg);
     }
     vuRows.push(rowMeshes);
   }
@@ -461,7 +498,7 @@ function buildRightPanel(): void {
       const seg = new THREE.Mesh(makeRoundedBox(0.035, 0.014, 0.008, 0.002, 1), inactiveSegment.clone());
       seg.position.set(1.06 + col * 0.04, -0.02 - row * 0.055, 0.205);
       segments.push(seg);
-      terminalGroup.add(seg);
+    detailGroup.add(seg);
     }
     distRows.set(bucket.id, segments);
   });
@@ -471,18 +508,45 @@ function buildRightPanel(): void {
   terminalGroup.add(elapsedDisplay.mesh);
 }
 
-function addBezel(x: number, y: number, w: number, h: number, z: number): void {
-  [
-    [w, 0.035, 0, h / 2 + 0.017],
-    [w, 0.035, 0, -h / 2 - 0.017],
-    [0.035, h, -w / 2 - 0.017, 0],
-    [0.035, h, w / 2 + 0.017, 0]
-  ].forEach(([bw, bh, ox, oy]) => {
-    const strip = new THREE.Mesh(makeRoundedBox(bw, bh, 0.035, 0.006, 2), darkMetal);
-    strip.position.set(x + ox, y + oy, z);
-    strip.castShadow = true;
-    terminalGroup.add(strip);
+function addScreenBezel(x: number, y: number, z: number): void {
+  const outerW = 0.8;
+  const outerH = 1.42;
+  const innerW = 0.68;
+  const innerH = 1.28;
+  const frameShape = new THREE.Shape();
+  frameShape.moveTo(-outerW / 2, -outerH / 2);
+  frameShape.lineTo(outerW / 2, -outerH / 2);
+  frameShape.lineTo(outerW / 2, outerH / 2);
+  frameShape.lineTo(-outerW / 2, outerH / 2);
+  frameShape.lineTo(-outerW / 2, -outerH / 2);
+  const hole = new THREE.Path();
+  hole.moveTo(-innerW / 2, -innerH / 2);
+  hole.lineTo(innerW / 2, -innerH / 2);
+  hole.lineTo(innerW / 2, innerH / 2);
+  hole.lineTo(-innerW / 2, innerH / 2);
+  hole.lineTo(-innerW / 2, -innerH / 2);
+  frameShape.holes.push(hole);
+  const geometry = prepareGeometry(
+    new THREE.ExtrudeGeometry(frameShape, {
+      depth: 0.045,
+      bevelEnabled: true,
+      bevelThickness: 0.005,
+      bevelSize: 0.004,
+      bevelSegments: 2
+    })
+  );
+  geometry.center();
+  const bezelMaterial = new THREE.MeshStandardMaterial({
+    color: 0x141810,
+    roughness: 0.5,
+    metalness: 0.45,
+    normalMap: sharedScratchNormalMap,
+    normalScale: new THREE.Vector2(0.65, 0.65)
   });
+  const bezel = new THREE.Mesh(geometry, bezelMaterial);
+  bezel.position.set(x, y, z);
+  bezel.castShadow = true;
+  terminalGroup.add(bezel);
 }
 
 function addHousing(x: number, y: number, w: number, h: number): void {
@@ -517,7 +581,7 @@ function addReel(x: number, y: number, mat: THREE.Material): void {
   }
   reel.position.set(x, y, 0.218);
   reelObjects.push(reel);
-  terminalGroup.add(reel);
+  detailGroup.add(reel);
 }
 
 function addScrew(x: number, y: number): void {
@@ -530,13 +594,13 @@ function addScrew(x: number, y: number): void {
   }));
   screw.rotation.x = Math.PI / 2;
   screw.position.set(x, y, 0.19);
-  terminalGroup.add(screw);
+  detailGroup.add(screw);
   const crossA = new THREE.Mesh(makeRoundedBox(0.025, 0.003, 0.002, 0.001, 1), darkMetal);
   const crossB = crossA.clone();
   crossB.rotation.z = Math.PI / 2;
   crossA.position.set(x, y, 0.197);
   crossB.position.set(x, y, 0.198);
-  terminalGroup.add(crossA, crossB);
+  detailGroup.add(crossA, crossB);
 }
 
 function makeFrontCylinder(radius: number, depth: number, material: THREE.Material, segments = 32, topRadius = radius): THREE.Mesh {
@@ -599,9 +663,20 @@ function prepareGeometry<T extends THREE.BufferGeometry>(geometry: T): T {
   return geometry;
 }
 
-function addLabelPlane(text: string, width: number, height: number, x: number, y: number, z: number, align: CanvasTextAlign, fontSize = 34): THREE.Mesh {
-  const label = makeTextPlane(512, 128, width, height);
-  drawTextTexture(label, text, { fontSize, align });
+function addLabelPlane(
+  text: string,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  z: number,
+  align: CanvasTextAlign,
+  fontSize = 34,
+  canvasWidth = 256,
+  canvasHeight = 64
+): THREE.Mesh {
+  const label = makeTextPlane(canvasWidth, canvasHeight, width, height);
+  staticLabels.push({ plane: label, text, align, fontSize });
   label.mesh.position.set(x, y, z);
   terminalGroup.add(label.mesh);
   return label.mesh;
@@ -611,12 +686,35 @@ function buildPlinkoPegs(): void {
   // Pegs are drawn on the screen canvas; this function exists to keep the build stages mirrored.
 }
 
+function inspectSceneGeometry(): void {
+  const removable: THREE.Object3D[] = [];
+  scene.updateMatrixWorld(true);
+  scene.traverse((object) => {
+    if (!(object instanceof THREE.Mesh) || object.name === 'approved-ground-plane') return;
+    const bounds = new THREE.Box3().setFromObject(object);
+    const tooLarge =
+      Math.abs(bounds.min.x) > 2 ||
+      Math.abs(bounds.max.x) > 2 ||
+      Math.abs(bounds.min.y) > 2 ||
+      Math.abs(bounds.max.y) > 2 ||
+      Math.abs(bounds.min.z) > 2 ||
+      Math.abs(bounds.max.z) > 2;
+    if (tooLarge) {
+      console.warn('Removing rogue geometry outside terminal bounds:', object.name || object.uuid);
+      removable.push(object);
+    }
+  });
+  removable.forEach((object) => object.parent?.remove(object));
+  console.info('Scene child count:', scene.children.length);
+  console.info('Terminal child count:', terminalGroup.children.length);
+}
+
 function dropChip(): void {
   if (activeChip) return;
   dropPressUntil = performance.now() + 80;
   activeChip = {
-    x: 160 + (Math.random() - 0.5) * 26,
-    y: 44,
+    x: SW / 2 + (Math.random() - 0.5) * 42,
+    y: 84,
     vx: (Math.random() - 0.5) * 2.2,
     vy: 1.6,
     trail: []
@@ -635,7 +733,9 @@ function animate(now: number): void {
   const amberMat = amber?.material as THREE.MeshStandardMaterial | undefined;
   if (amberMat) amberMat.emissiveIntensity = amberPhase;
 
-  dropButtonMesh.position.z = now < dropPressUntil ? dropButtonBaseZ - 0.012 : THREE.MathUtils.lerp(dropButtonMesh.position.z, dropButtonBaseZ, 0.24);
+  const pressedZ = dropButtonBaseZ - 0.01;
+  const targetDropZ = isPressingDrop || now < dropPressUntil ? pressedZ : dropButtonBaseZ;
+  dropButtonMesh.position.z = THREE.MathUtils.lerp(dropButtonMesh.position.z, targetDropZ, 0.3);
 
   if (activeChip) {
     updatePhysics();
@@ -652,12 +752,12 @@ function animate(now: number): void {
   });
 
   const elapsed = Math.floor((performance.now() - startTime) / 1000);
-  if (elapsed !== lastSecond) {
+  if (fontsReady && elapsed !== lastSecond) {
     lastSecond = elapsed;
     updateAllReadouts(false);
   }
 
-  drawScreen();
+  if (fontsReady) drawScreen();
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
@@ -676,12 +776,12 @@ function updatePhysics(): void {
 
   activeChip.x += activeChip.vx;
   activeChip.y += activeChip.vy;
-  if (activeChip.x < 10) {
-    activeChip.x = 10;
+  if (activeChip.x < 14) {
+    activeChip.x = 14;
     activeChip.vx = Math.abs(activeChip.vx) * 0.55;
   }
-  if (activeChip.x > 310) {
-    activeChip.x = 310;
+  if (activeChip.x > SW - 14) {
+    activeChip.x = SW - 14;
     activeChip.vx = -Math.abs(activeChip.vx) * 0.55;
   }
 
@@ -689,7 +789,7 @@ function updatePhysics(): void {
     const dx = activeChip.x - peg.x;
     const dy = activeChip.y - peg.y;
     const dist = Math.hypot(dx, dy);
-    const min = 13;
+    const min = 22;
     if (dist > 0 && dist < min) {
       const nx = dx / dist;
       const ny = dy / dist;
@@ -706,10 +806,10 @@ function updatePhysics(): void {
   }
 
   activeChip.trail.unshift({ x: activeChip.x, y: activeChip.y });
-  activeChip.trail = activeChip.trail.slice(0, 14);
+  activeChip.trail = activeChip.trail.slice(0, 8);
 
-  if (activeChip.y >= 552) {
-    const index = Math.max(0, Math.min(6, Math.floor(activeChip.x / (320 / 7))));
+  if (activeChip.y >= SH - 14) {
+    const index = Math.max(0, Math.min(6, Math.floor(activeChip.x / (SW / 7))));
     const bucket = buckets[index];
     landChip(bucket);
   }
@@ -736,57 +836,87 @@ function fadeBucket(mat: THREE.MeshStandardMaterial): void {
 }
 
 function drawScreen(): void {
-  screenCtx.fillStyle = '#0A1A08';
-  screenCtx.fillRect(0, 0, 320, 560);
-  screenCtx.fillStyle = '#060E05';
-  screenCtx.fillRect(0, 0, 320, 30);
-  screenCtx.fillStyle = '#4DFF91';
-  screenCtx.font = '18px "Share Tech Mono", monospace';
-  screenCtx.fillText(`SCORE: ${String(score).padStart(4, '0')}`, 12, 21);
+  screenCtx.clearRect(0, 0, SW, SH);
+  screenCtx.fillStyle = '#081208';
+  screenCtx.fillRect(0, 0, SW, SH);
 
-  screenCtx.fillStyle = '#2A7A48';
+  screenCtx.fillStyle = 'rgba(0,0,0,0.10)';
+  for (let y = 0; y < SH; y += 4) screenCtx.fillRect(0, y, SW, 1);
+
+  const vignette = screenCtx.createRadialGradient(SW / 2, SH / 2, 150, SW / 2, SH / 2, 620);
+  vignette.addColorStop(0, 'rgba(0,0,0,0)');
+  vignette.addColorStop(1, 'rgba(0,0,0,0.45)');
+  screenCtx.fillStyle = vignette;
+  screenCtx.fillRect(0, 0, SW, SH);
+
   for (const peg of getPegs()) {
     screenCtx.beginPath();
-    screenCtx.arc(peg.x, peg.y, 5, 0, Math.PI * 2);
+    screenCtx.fillStyle = '#1A6A38';
+    screenCtx.strokeStyle = '#2A9A52';
+    screenCtx.lineWidth = 1;
+    screenCtx.arc(peg.x, peg.y, 8, 0, Math.PI * 2);
     screenCtx.fill();
+    screenCtx.stroke();
   }
 
   if (activeChip) {
-    activeChip.trail.forEach((point, index) => {
-      screenCtx.globalAlpha = (1 - index / activeChip!.trail.length) * 0.36;
+    [...activeChip.trail].reverse().forEach((point, index) => {
+      screenCtx.globalAlpha = 0.05 + (index / Math.max(1, activeChip!.trail.length - 1)) * 0.3;
       screenCtx.fillStyle = '#4DFF91';
       screenCtx.beginPath();
-      screenCtx.arc(point.x, point.y, 8, 0, Math.PI * 2);
+      screenCtx.arc(point.x, point.y, 14, 0, Math.PI * 2);
       screenCtx.fill();
     });
     screenCtx.globalAlpha = 1;
     screenCtx.fillStyle = '#4DFF91';
     screenCtx.beginPath();
-    screenCtx.arc(activeChip.x, activeChip.y, 8, 0, Math.PI * 2);
+    screenCtx.arc(activeChip.x, activeChip.y, 14, 0, Math.PI * 2);
     screenCtx.fill();
-    screenCtx.fillStyle = '#FFFFFF';
+    screenCtx.fillStyle = 'rgba(255,255,255,0.9)';
     screenCtx.beginPath();
-    screenCtx.arc(activeChip.x, activeChip.y, 2, 0, Math.PI * 2);
+    screenCtx.arc(activeChip.x, activeChip.y, 4, 0, Math.PI * 2);
     screenCtx.fill();
   }
 
-  screenCtx.fillStyle = 'rgba(0,0,0,0.12)';
-  for (let y = 0; y < 560; y += 3) screenCtx.fillRect(0, y, 320, 1);
-  const vignette = screenCtx.createRadialGradient(160, 280, 80, 160, 280, 320);
-  vignette.addColorStop(0, 'rgba(0,0,0,0)');
-  vignette.addColorStop(1, 'rgba(0,0,0,0.5)');
-  screenCtx.fillStyle = vignette;
-  screenCtx.fillRect(0, 0, 320, 560);
+  screenCtx.fillStyle = '#020802';
+  screenCtx.fillRect(0, 0, SW, 80);
+  screenCtx.fillStyle = '#4DFF91';
+  screenCtx.font = '28px "Share Tech Mono", monospace';
+  screenCtx.textBaseline = 'middle';
+  screenCtx.textAlign = 'left';
+  screenCtx.fillText(`SCORE: ${String(score).padStart(4, '0')}`, 20, 40);
+
+  screenCtx.strokeStyle = '#1A4A28';
+  screenCtx.lineWidth = 1;
+  for (let i = 1; i < 7; i += 1) {
+    const x = (SW / 7) * i;
+    screenCtx.beginPath();
+    screenCtx.moveTo(x, 940);
+    screenCtx.lineTo(x, 1000);
+    screenCtx.stroke();
+  }
   screenTexture.needsUpdate = true;
 }
 
 function updateAllReadouts(force: boolean): void {
-  drawTextTexture(scoreDisplay, String(score).padStart(4, '0'), { fontSize: 62, align: 'right' });
-  drawTextTexture(reelStatusDisplay, activeChip ? 'ACTIVE' : 'STANDBY', { fontSize: 38, align: 'center' });
-  drawTextTexture(elapsedDisplay, formatTime(lastSecond < 0 ? 0 : lastSecond), { fontSize: 48, align: 'center' });
-  drawTextTexture(footerStatus, activeChip ? 'ACTIVE' : 'STANDBY', { fontSize: 34, align: 'right' });
+  if (!fontsReady) return;
+  drawDisplay(scoreDisplay, [
+    { text: 'SCORE_CTR', size: scoreDisplay.canvas.height * 0.2, color: '#2A7A48', y: 0.28, align: 'center' },
+    { text: String(score).padStart(4, '0'), size: scoreDisplay.canvas.height * 0.52, y: 0.68, align: 'center' }
+  ]);
+  drawDisplay(reelStatusDisplay, [
+    { text: activeChip ? 'ACTIVE' : 'STANDBY', size: reelStatusDisplay.canvas.height * 0.42, y: 0.52, align: 'center' }
+  ]);
+  drawDisplay(elapsedDisplay, [
+    { text: formatTime(lastSecond < 0 ? 0 : lastSecond), size: elapsedDisplay.canvas.height * 0.55, y: 0.52, align: 'center' }
+  ]);
+  drawDisplay(footerStatus, [
+    { text: activeChip ? 'ACTIVE' : 'STANDBY', size: footerStatus.canvas.height * 0.34, y: 0.52, align: 'right' }
+  ]);
   (['L', 'C', 'R'] as const).forEach((key) => {
-    drawTextTexture(statDisplays[key], `${key}  ${String(stats[key]).padStart(2, '0')}`, { fontSize: 38, align: 'left' });
+    drawDisplay(statDisplays[key], [
+      { text: `${key}  ${String(stats[key]).padStart(2, '0')}`, size: statDisplays[key].canvas.height * 0.34, y: 0.52, align: 'left' }
+    ]);
   });
   drawLandingLog();
   updateDistribution();
@@ -795,13 +925,15 @@ function updateAllReadouts(force: boolean): void {
 
 function drawLandingLog(): void {
   const lines = landings.length ? landings.map((entry) => `${entry.stamp}    ${entry.id} / ${entry.points}`) : ['-- AWAITING DROP --'];
-  const ctx = landingLogDisplay.context;
-  ctx.fillStyle = '#061006';
-  ctx.fillRect(0, 0, 512, 512);
-  ctx.fillStyle = '#4DFF91';
-  ctx.font = '32px "Share Tech Mono", monospace';
-  lines.forEach((line, index) => ctx.fillText(line, 18, 48 + index * 52));
-  landingLogDisplay.texture.needsUpdate = true;
+  drawDisplay(
+    landingLogDisplay,
+    lines.map((line, index) => ({
+      text: line,
+      size: landingLogDisplay.canvas.height * 0.085,
+      y: 0.14 + index * 0.1,
+      align: 'left' as CanvasTextAlign
+    }))
+  );
 }
 
 function updateVu(): void {
@@ -825,13 +957,15 @@ function updateDistribution(): void {
 
 function getPegs(): Array<{ x: number; y: number }> {
   const pegs: Array<{ x: number; y: number }> = [];
-  const cols = 7;
-  const spacingX = 38;
-  const spacingY = 50;
-  for (let row = 0; row < 8; row += 1) {
-    const offset = row % 2 ? spacingX / 2 : 0;
-    for (let col = 0; col < cols; col += 1) {
-      pegs.push({ x: 45 + col * spacingX + offset, y: 88 + row * spacingY });
+  const pegSpacingX = SW / (PEG_COLS + 1);
+  const pegSpacingY = 780 / (PEG_ROWS + 1);
+  for (let row = 0; row < PEG_ROWS; row += 1) {
+    const offset = row % 2 === 0 ? 0 : pegSpacingX / 2;
+    for (let col = 0; col < PEG_COLS; col += 1) {
+      pegs.push({
+        x: pegSpacingX + col * pegSpacingX + offset,
+        y: 100 + (row + 1) * pegSpacingY
+      });
     }
   }
   return pegs;
@@ -844,6 +978,7 @@ function makeTextPlane(canvasWidth: number, canvasHeight: number, worldWidth: nu
   const context = mustContext(textCanvas);
   const texture = new THREE.CanvasTexture(textCanvas);
   texture.encoding = THREE.sRGBEncoding;
+  configureDisplayTexture(texture);
   const material = new THREE.MeshStandardMaterial({
     map: texture,
     emissiveMap: texture,
@@ -857,25 +992,71 @@ function makeTextPlane(canvasWidth: number, canvasHeight: number, worldWidth: nu
   return { canvas: textCanvas, context, texture, mesh };
 }
 
+function rebuildAllTextures(): void {
+  staticLabels.forEach(({ plane, text, align, fontSize }) => {
+    drawDisplay(
+      plane,
+      text.split('\n').map((line, index, lines) => ({
+        text: line,
+        size: Math.min(fontSize, plane.canvas.height * (lines.length > 1 ? 0.32 : 0.48)),
+        y: 0.5 + (index - (lines.length - 1) / 2) * 0.34,
+        align,
+        color: '#4DFF91'
+      }))
+    );
+  });
+  drawScreen();
+  updateAllReadouts(true);
+}
+
+function drawDisplay(plane: TextPlane, lines: DisplayLine[]): void {
+  const { canvas: displayCanvas, context } = plane;
+  context.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
+  context.fillStyle = '#040C04';
+  context.fillRect(0, 0, displayCanvas.width, displayCanvas.height);
+  context.strokeStyle = 'rgba(0,0,0,0.8)';
+  context.lineWidth = 4;
+  context.strokeRect(2, 2, displayCanvas.width - 4, displayCanvas.height - 4);
+
+  lines.forEach((line) => {
+    context.font = `${line.size}px "Share Tech Mono", monospace`;
+    context.fillStyle = line.color || '#4DFF91';
+    context.textBaseline = 'middle';
+    context.textAlign = line.align || 'left';
+    const x = line.align === 'center' ? displayCanvas.width / 2 : line.align === 'right' ? displayCanvas.width - 12 : 12;
+    context.fillText(line.text, x, line.y * displayCanvas.height);
+  });
+
+  context.fillStyle = 'rgba(0,0,0,0.07)';
+  for (let y = 0; y < displayCanvas.height; y += 3) {
+    context.fillRect(0, y, displayCanvas.width, 1);
+  }
+  plane.texture.needsUpdate = true;
+}
+
 function drawTextTexture(
   plane: TextPlane,
   text: string,
   options: { fontSize?: number; align?: CanvasTextAlign } = {}
 ): void {
-  const { context, canvas: textCanvas } = plane;
   const lines = text.split('\n');
-  context.clearRect(0, 0, textCanvas.width, textCanvas.height);
-  context.fillStyle = 'rgba(6, 16, 6, 0.82)';
-  context.fillRect(0, 0, textCanvas.width, textCanvas.height);
-  context.fillStyle = '#4DFF91';
-  context.font = `${options.fontSize ?? 38}px "Share Tech Mono", monospace`;
-  context.textAlign = options.align ?? 'center';
-  context.textBaseline = 'middle';
-  const x = options.align === 'left' ? 18 : options.align === 'right' ? textCanvas.width - 18 : textCanvas.width / 2;
-  lines.forEach((line, index) => {
-    context.fillText(line, x, textCanvas.height / 2 + (index - (lines.length - 1) / 2) * (options.fontSize ?? 38));
-  });
-  plane.texture.needsUpdate = true;
+  drawDisplay(
+    plane,
+    lines.map((line, index) => ({
+      text: line,
+      size: options.fontSize ?? plane.canvas.height * 0.34,
+      y: 0.5 + (index - (lines.length - 1) / 2) * 0.28,
+      align: options.align
+    }))
+  );
+}
+
+function configureDisplayTexture(texture: THREE.Texture): void {
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.repeat.set(1, 1);
+  texture.offset.set(0, 0);
+  texture.flipY = true;
 }
 
 function makeNormalMap(kind: 'plastic' | 'scratch'): THREE.CanvasTexture {
