@@ -374,8 +374,15 @@ label {
 }
 
 .landing-log li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
   padding: 0.18rem 0.25rem;
   background: rgba(212, 196, 160, 0.48);
+}
+
+.landing-log li span {
+  opacity: 0.72;
 }
 
 .dist-row {

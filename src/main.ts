@@ -173,20 +173,45 @@ function renderState(): void {
   const time = document.querySelector<HTMLElement>('[data-time]');
   const reelStatus = document.querySelector<HTMLElement>('[data-reel-status]');
   const footerStatus = document.querySelector<HTMLElement>('[data-footer-status]');
+  const landingLog = document.querySelector<HTMLOListElement>('[data-log]');
 
   if (score) score.textContent = state.score.toString().padStart(4, '0').slice(-4);
   if (time) time.textContent = formatTime(state.elapsedSeconds);
   if (reelStatus) reelStatus.textContent = state.active ? 'TAPE_RUNNING' : 'STANDBY';
   if (footerStatus) footerStatus.textContent = state.active ? 'ACTIVE' : 'STANDBY';
   if (dropButton) dropButton.disabled = state.active;
+  if (landingLog) {
+    landingLog.innerHTML =
+      state.landings.length === 0
+        ? '<li>-- NO ENTRIES --</li>'
+        : state.landings.map((entry) => `<li><span>${entry.stamp}</span> ${entry.id} / ${entry.points}</li>`).join('');
+  }
 
   renderStats(state);
+  renderDistribution(state);
+  renderBucketFlash(state);
 }
 
 function renderStats(nextState: TerminalState): void {
   document.querySelector<HTMLElement>('[data-stat-left]')!.textContent = nextState.stats.left.toString().padStart(2, '0');
   document.querySelector<HTMLElement>('[data-stat-center]')!.textContent = nextState.stats.center.toString().padStart(2, '0');
   document.querySelector<HTMLElement>('[data-stat-right]')!.textContent = nextState.stats.right.toString().padStart(2, '0');
+}
+
+function renderDistribution(nextState: TerminalState): void {
+  const maxValue = Math.max(1, ...Object.values(nextState.distribution));
+  buckets.forEach((bucket) => {
+    const activeCount = Math.round((nextState.distribution[bucket.id] / maxValue) * 10);
+    document.querySelectorAll<HTMLElement>(`[data-dist-row="${bucket.id}"] i`).forEach((segment, index) => {
+      segment.classList.toggle('is-on', index < activeCount);
+    });
+  });
+}
+
+function renderBucketFlash(nextState: TerminalState): void {
+  document.querySelectorAll<HTMLElement>('[data-bucket]').forEach((bucket) => {
+    bucket.classList.toggle('is-flash', bucket.dataset.bucket === nextState.flashBucket);
+  });
 }
 
 function formatTime(seconds: number): string {
@@ -236,6 +261,12 @@ function registerLanding(id: BucketId, points: number): void {
   state.landings = state.landings.slice(0, 8);
   state.flashBucket = id;
   renderState();
+  window.setTimeout(() => {
+    if (state.flashBucket === id) {
+      state.flashBucket = undefined;
+      renderState();
+    }
+  }, 600);
 }
 
 window.__PLINKO_REGISTER_LANDING__ = registerLanding;
