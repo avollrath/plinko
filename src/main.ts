@@ -1,4 +1,5 @@
 import './styles.css';
+import { TerminalScene } from './threeScene';
 import { buckets, createInitialState, type BucketId, type TerminalState } from './uiState';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -94,10 +95,24 @@ app.innerHTML = `
 `;
 
 const dropButton = document.querySelector<HTMLButtonElement>('[data-drop]');
+const terminalCanvas = document.querySelector<HTMLCanvasElement>('#terminal-scene');
 const vuMeter = document.querySelector<HTMLDivElement>('[data-vu]');
 const bucketRow = document.querySelector<HTMLDivElement>('[data-buckets]');
 const distChart = document.querySelector<HTMLDivElement>('[data-dist]');
 const progress = document.querySelector<HTMLDivElement>('[data-progress]');
+
+if (!terminalCanvas) {
+  throw new Error('Terminal scene canvas was not found.');
+}
+
+const terminalScene = new TerminalScene(terminalCanvas);
+
+function resizeScene(): void {
+  terminalScene.resize(window.innerWidth, window.innerHeight, window.devicePixelRatio);
+}
+
+window.addEventListener('resize', resizeScene);
+resizeScene();
 
 if (vuMeter) {
   vuMeter.innerHTML = Array.from({ length: 6 }, (_, row) =>
@@ -194,6 +209,7 @@ function animateShell(): void {
   });
 
   renderState();
+  terminalScene.render();
   requestAnimationFrame(animateShell);
 }
 
