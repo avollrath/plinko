@@ -1,54 +1,88 @@
-# Plinko Arcade
+# PLNK-7 Field Terminal
 
-**A glossy physics-based Plinko cabinet built with Vite, TypeScript, Three.js, and cannon-es.**
+**A cassette-futurism Plinko game presented as a worn alternate-1980s military control device.**
 
-Plinko Arcade is a vertical casino-inspired arcade game with a procedural blue playfield, neon side rails, metallic pegs, glowing prize slots, and a responsive HUD. The project is designed as a compact frontend/design-engineering portfolio piece: polished visuals, modular game architecture, and a real physics simulation running in the browser.
+PLNK-7 reworks a familiar Plinko mechanic into a rugged physical terminal: matte plastic panels, recessed LCD glass, segmented readouts, tape reels, mechanical controls, and a custom canvas physics simulation. The project is designed as a frontend/design-engineering portfolio piece where interaction design, procedural visuals, and approachable simulation code work together as one object.
+
+## Hero Description
+
+Instead of a glossy casino board, PLNK-7 feels like equipment pulled from a field operations case. The UI is split into a three-column dashboard with technical labels, visible panel seams, molded indicators, a live landing log, distribution chart, VU meter, and a large dome DROP control. A Three.js scene renders the physical terminal slab behind the HTML interface, while the Plinko game itself runs in a deterministic 2D canvas simulation.
+
+## Screenshot Placeholders
+
+Add captured screenshots here after recording the running app:
+
+- `docs/screenshots/plnk-7-desktop.png`
+- `docs/screenshots/plnk-7-mobile.png`
+- `docs/screenshots/plnk-7-chip-drop.png`
 
 ## Features
 
-- Portrait Plinko board with a glossy blue panel and organic procedural texture
-- Three.js rendering with lights, emissive materials, beveled geometry, and animated neon rails
-- cannon-es physics world with gravity, static peg bodies, slot dividers, walls, and a dynamic ball
-- Randomized ball spawn near the top of the board
-- Arcade HUD with balance, last win, active slot, bet selector, drop button, and reset control
-- Configurable slot multipliers and bet amounts
-- Slot labels and colors inspired by classic arcade prize lanes
-- Sound hook placeholders for button clicks, peg hits, and slot results
-- Stable fixed-timestep physics with body-to-mesh synchronization every frame
-- Mobile and desktop responsive canvas layout
-- Timeout and anti-stuck logic to keep each drop resolving cleanly
+- Full cassette-futurism / worn military plastic dashboard
+- Three.js terminal body with rounded slab geometry, scuffed procedural normal map, soft shadows, and slow idle motion
+- HTML/CSS overlay for precise dashboard layout and responsive controls
+- Custom 400 x 480 canvas Plinko field
+- Eight rows by nine columns of staggered pegs
+- Visible seven-bucket scoring row: L3, L2, L1, CTR, R1, R2, R3
+- Single-chip gameplay with DROP button and Space key support
+- Recessed score counter, elapsed timer, landing log, L/C/R stats, and distribution chart
+- Animated VU meter and tape reel while a chip is falling
+- No external image assets; all visuals are procedural CSS, canvas, and Three.js
 
 ## Tech Stack
 
-- **Vite** for fast local development and production builds
-- **TypeScript** for typed game state, layout configuration, and physics/rendering contracts
-- **Three.js** for procedural 3D rendering
-- **cannon-es** for rigid-body physics
-- **Vanilla DOM/CSS** for the HUD, avoiding framework overhead
+- **Vite** for development and production builds
+- **TypeScript** for typed game state and modular simulation code
+- **Three.js** for the physical terminal body scene
+- **Canvas 2D** for Plinko physics and playfield rendering
+- **HTML/CSS** for the dashboard interface
+- **Share Tech Mono** for the terminal-like typography
 
-## Game Mechanics
+## Physics Explanation
 
-Players choose a bet amount, then press **Drop Ball**. The game subtracts the bet from the balance, spawns a ball near the top center, and lets physics determine its path through the staggered peg grid. When the ball settles into one of five bottom slots, the slot multiplier is applied to the bet and the resulting win is added back to the balance.
+The Plinko simulation is implemented in [`src/plinkoPhysics.ts`](./src/plinkoPhysics.ts). The internal playfield uses a fixed 400 x 480 coordinate system regardless of responsive CSS scaling.
 
-The current multipliers live in [`src/config.ts`](./src/config.ts), making it easy to rebalance the game:
+Each frame applies gravity, mild velocity damping, wall clamping, and a maximum speed cap. Pegs are static circles arranged in a staggered grid. The chip is a dynamic circle that resolves peg overlap along the collision normal, reflects velocity using bounce damping, and receives a small horizontal nudge on impact so drops feel physical without becoming identical.
 
-```ts
-slotMultipliers: [0.5, 1.2, 2, 1.2, 0.5]
+When the chip reaches the bottom of the canvas, its `x` position maps into one of seven equal bucket regions. The bucket awards points, flashes briefly, updates the landing log, increments the distribution chart, and returns the terminal to standby.
+
+## Visual Design Direction
+
+The visual system is intentionally matte and physical:
+
+- Main plastic: `#D4C4A0`
+- Recessed plastic: `#B8A882`
+- Page background: `#C8B89A`
+- LCD play field: `#8A9A7A`
+- Dark ink: `#3a2a1a`
+- Panel seams: `#A89870`
+- Segment on: `#C8B882`
+- Segment off: `#3a3220`
+- Button crown: `#E0D4B0`
+
+The interface avoids neon, glow, glossy gradients, and playful arcade typography. Panels use inset borders, inner shadows, screw details, segmented meters, recessed displays, raised dome controls, and dusty procedural texture to create the feeling of a rugged field terminal.
+
+## Interaction Details
+
+- Click **DROP** to release a chip.
+- Press **Space** to trigger the same drop action.
+- DROP is disabled while a chip is falling.
+- The footer status changes from `STANDBY` to `ACTIVE`.
+- The VU meter animates while active.
+- One tape reel rotates while the system is active.
+- The landing log stores the last eight landings.
+- Distribution bars show relative bucket frequency.
+
+## Project Structure
+
+```text
+src/
+  main.ts            App bootstrap, dashboard state rendering, and interaction wiring
+  plinkoPhysics.ts   Canvas playfield, chip simulation, collisions, and bucket detection
+  threeScene.ts      Three.js terminal slab, lighting, shadows, and procedural plastic texture
+  uiState.ts         Bucket configuration and typed terminal state
+  styles.css         Cassette-futurism dashboard styling and responsive layout
 ```
-
-## Physics Notes
-
-The physics layer uses a `CANNON.World` with downward gravity and a fixed timestep for consistent motion. Pegs are static sphere bodies, walls and slot dividers are static boxes, and the ball is a dynamic sphere with damping and tuned restitution. The renderer owns the Three.js meshes while the game controller syncs the active cannon body to its mesh on every animation frame.
-
-The board is constrained to feel like a 2D arcade cabinet while still using 3D geometry. A back and front guide plane keep the ball in the playfield depth, and a failsafe resolves the ball if it slows too much or exceeds the expected drop duration.
-
-## Screenshots
-
-Add project screenshots here after capturing local gameplay:
-
-- `docs/screenshots/plinko-desktop.png`
-- `docs/screenshots/plinko-mobile.png`
-- `docs/screenshots/plinko-drop-in-motion.png`
 
 ## Local Setup
 
@@ -58,7 +92,7 @@ Install dependencies:
 npm install
 ```
 
-Start the development server:
+Run the development server:
 
 ```bash
 npm run dev
@@ -76,37 +110,16 @@ Preview the production build:
 npm run preview
 ```
 
-## Project Structure
+## What This Project Demonstrates
 
-```text
-src/
-  audio/
-    soundHooks.ts        Sound event placeholders
-  game/
-    boardLayout.ts       Shared peg and slot layout helpers
-    GameController.ts    Drop, scoring, balance, and ball lifecycle logic
-  physics/
-    PlinkoPhysics.ts     cannon-es world, materials, bodies, and timestep
-  three/
-    PlinkoScene.ts       Three.js scene, board meshes, lighting, and animation
-  ui/
-    Hud.ts               Vanilla DOM HUD and controls
-  config.ts              Board, multiplier, and economy configuration
-  main.ts                App bootstrap and animation loop
-  styles.css             Canvas, HUD, and arcade styling
-```
+PLNK-7 demonstrates product-minded frontend craft in a compact interactive format: translating a strong visual direction into a responsive interface, separating rendering layers by responsibility, writing a small custom physics engine, and giving the UI enough operational detail to feel like a believable object.
+
+It is also a study in restraint. The final result relies on material, proportion, typography, motion, and state feedback rather than bright glow effects or stock assets.
 
 ## Future Improvements
 
-- Add Web Audio synth tones or sample-based sounds for richer feedback
-- Add postprocessing bloom for stronger neon highlights
-- Support multiple simultaneous balls and a drop queue
-- Add a results history strip for recent drops
-- Add screenshot assets to the README and project gallery
-- Add lightweight end-to-end visual smoke tests for desktop and mobile viewports
-
-## Portfolio Reflection
-
-This project demonstrates how to combine real-time rendering, physics simulation, and interface design into a focused browser game. The board is procedural rather than asset-heavy, so the visual style comes from geometry, materials, lighting, CSS, and animation. The code separates rendering, physics, game state, and UI concerns, which keeps the experience easy to tune while still delivering a cohesive arcade feel.
-
-Plinko Arcade is intentionally small in scope, but it touches the same disciplines used in larger interactive product work: responsive layout, state management, simulation tuning, visual polish, and maintainable TypeScript architecture.
+- Add optional Web Audio tones for relay clicks, reel motion, and bucket landings
+- Add a calibration mode for tuning gravity, damping, and bounce
+- Add persistent high-score storage
+- Add screenshot assets and a short demo clip for portfolio presentation
+- Add Playwright smoke tests for desktop and mobile layout checks
